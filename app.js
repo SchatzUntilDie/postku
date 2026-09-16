@@ -196,26 +196,29 @@ function selectPayment(method,total){
 async function finishPayment(method,total){
   const cash=method==="cash"?Number(document.getElementById("cashAmount").value):total;
   if(method==="cash"&&cash<total){toast("Uang diterima kurang");return}
-  const now=new Date();
-  const orderPayload={customer_name:document.getElementById("payBuyer")?.value?.trim()||S.buyerName||"Umum",status:"completed",total,discount:0,cashier_id:current.id,completed_at:now.toISOString(),created_at:now.toISOString()};
-  const {data:order,error}=await db.from("orders").insert(orderPayload).select("id,order_number,created_at").single();
-  if(error){console.error(error);toast("Gagal menyimpan transaksi");return;}
-  const items=S.cart.map(i=>({order_id:order.id,product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty}));
-  const {error:ie}=await db.from("order_items").insert(items);
-  if(ie){console.error(ie);await db.from("orders").delete().eq("id",order.id);toast("Detail transaksi gagal disimpan");return;}
-  const payment={order_id:order.id,method,amount:cash,status:"paid",reference:method==="transfer"?(document.getElementById("payRef")?.value||null):null,paid_at:now.toISOString()};
-  const {error:pe}=await db.from("payments").insert(payment);
-  if(pe){console.error(pe);toast("Pembayaran gagal disimpan");return;}
-  const local={id:order.id,number:order.order_number,displayId:"ORD-"+order.order_number,date:order.created_at,buyer:orderPayload.customer_name,items:structuredClone(S.cart),total,method:({cash:"Tunai",qris:"QRIS",transfer:"Transfer"})[method],cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username};
-  clearLocalCart();closeModal();await loadOrders();go("orders");setTimeout(()=>printReceipt(local),250);toast("Transaksi berhasil");
+  if(!current){toast("Sesi login habis, silakan login kembali");return}
+  const btn=document.getElementById("confirmPay"); if(btn){btn.disabled=true;btn.textContent="Menyimpan…"}
+  try{
+    const items=S.cart.map(i=>({product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price}));
+    const payment={method,amount:cash,reference:method==="transfer"?(document.getElementById("payRef")?.value||null):null};
+    const {data,error}=await db.rpc("postku_create_order",{p_customer_name:document.getElementById("payBuyer")?.value?.trim()||S.buyerName||"Umum",p_status:"completed",p_total:total,p_items:items,p_payment:payment});
+    if(error)throw new Error(error.message||"Gagal menyimpan transaksi");
+    const local={id:data.id,number:data.order_number,displayId:"ORD-"+data.order_number,date:data.created_at,buyer:document.getElementById("payBuyer")?.value?.trim()||S.buyerName||"Umum",items:structuredClone(S.cart),total,method:({cash:"Tunai",qris:"QRIS",transfer:"Transfer"})[method],cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username||current.display_name||"Kasir"};
+    clearLocalCart();closeModal();await refreshData();go("orders");setTimeout(()=>printReceipt(local),250);toast("Transaksi berhasil");
+  }catch(e){console.error(e);toast("Gagal menyimpan transaksi: "+(e.message||"periksa koneksi/izin"));}
+  finally{if(btn){btn.disabled=false;btn.textContent="Konfirmasi & Cetak"}}
 }
 async function createPending(){
   if(!S.cart.length){toast("Keranjang masih kosong");return}
-  const {data:order,error}=await db.from("orders").insert({customer_name:S.buyerName||"Umum",status:"pending",total:cartTotal(),cashier_id:current.id}).select("id,order_number,created_at").single();
-  if(error){console.error(error);toast("Gagal membuat pending");return;}
-  const {error:ie}=await db.from("order_items").insert(S.cart.map(i=>({order_id:order.id,product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty})));
-  if(ie){console.error(ie);toast("Gagal menyimpan item pending");return;}
-  clearLocalCart();await loadOrders();go("orders");toast("Pesanan disimpan sebagai pending");
+  if(!current){toast("Sesi login habis, silakan login kembali");return}
+  const btn=document.getElementById("pendingBtn");if(btn)btn.disabled=true;
+  try{
+    const items=S.cart.map(i=>({product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price}));
+    const {data,error}=await db.rpc("postku_create_order",{p_customer_name:S.buyerName||"Umum",p_status:"pending",p_total:cartTotal(),p_items:items,p_payment:null});
+    if(error)throw new Error(error.message||"Gagal membuat pending");
+    clearLocalCart();await refreshData();go("orders");toast("Pesanan disimpan sebagai pending");
+  }catch(e){console.error(e);toast("Gagal membuat pending: "+(e.message||"periksa koneksi/izin"));}
+  finally{if(btn)btn.disabled=false}
 }
 function renderOrders(){
   const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);
@@ -223,19 +226,20 @@ function renderOrders(){
 }
 async function resumeOrder(id){
   const o=S.orders.find(x=>x.id===id);if(!o)return;
-  S.cart=structuredClone(o.items);S.buyerName=o.buyer;S.tableNo="";localSave();
-  await db.from("orders").update({status:"cancelled",cancel_reason:"Dipindahkan kembali ke kasir"}).eq("id",id);
-  await loadOrders();go("kasir");toast("Pesanan dikembalikan ke keranjang");
+  S.cart=structuredClone(o.items).map(i=>({...i,key:i.variant_id?`${i.id}:${i.variant_id}`:`${i.id}:base`,maxStock:null}));
+  S.buyerName=o.buyer;S.tableNo="";localSave();
+  const {error}=await db.rpc("postku_cancel_order",{p_id:id,p_reason:"Dipindahkan kembali ke kasir"});
+  if(error){console.error(error);toast("Gagal mengembalikan pending: "+error.message);return}
+  await refreshData();go("kasir");toast("Pesanan dikembalikan ke keranjang");
 }
 async function cancelOrder(id){
-  const o=S.orders.find(x=>x.id===id);if(!o)return;
-  const {error}=await db.from("orders").update({status:"cancelled",cancelled_at:new Date().toISOString(),cancel_reason:"Dibatalkan kasir"}).eq("id",id);
-  if(error){toast("Gagal membatalkan");return} await loadOrders();renderOrders();toast("Pesanan dibatalkan");
+  const {error}=await db.rpc("postku_cancel_order",{p_id:id,p_reason:"Dibatalkan kasir"});
+  if(error){toast("Gagal membatalkan: "+error.message);return} await refreshData();renderOrders();toast("Pesanan dibatalkan");
 }
 async function voidOrder(id){
   if(!isAdmin()){toast("Hanya Admin");return}
-  const {error}=await db.from("orders").update({status:"cancelled",cancelled_at:new Date().toISOString(),cancel_reason:"Void oleh admin"}).eq("id",id);
-  if(error){toast("Gagal void");return} await loadOrders();renderOrders();toast("Transaksi di-void");
+  const {error}=await db.rpc("postku_cancel_order",{p_id:id,p_reason:"Void oleh admin"});
+  if(error){toast("Gagal void: "+error.message);return} await refreshData();renderOrders();toast("Transaksi di-void dan stok dikembalikan");
 }
 function renderProducts(){
   document.getElementById("productsList").innerHTML=S.products.map(p=>{const vars=p.variants||[];return `<div class="admin-product"><img loading="lazy" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${vars.length?vars.map(v=>`${esc(v.name)} (${v.stock})`).join(" · "):rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`}).join("")||'<div class="panel muted">Belum ada produk.</div>';
@@ -297,23 +301,8 @@ function productModal(id=null){
     try{
       let image_url=removeImage?null:(p.img||null);if(file)image_url=await uploadProductImage(file);
       const payload={name,price,category:cat,stock,sku,image_url,is_active:true,updated_at:new Date().toISOString()};
-      let productId=id;
-      if(id){
-        // Do not require RETURNING/SELECT here: RLS may allow UPDATE but hide the row from SELECT.
-        const result=await db.from("products").update(payload).eq("id",id);
-        if(result.error)throw new Error("Produk: "+result.error.message);
-        productId=id;
-      }else{
-        const result=await db.from("products").insert(payload).select("id").single();
-        if(result.error)throw new Error("Produk: "+result.error.message);
-        productId=result.data.id;
-      }
-      const existing=(p.variants||[]).map(v=>v.id),keep=rs.filter(v=>v.id).map(v=>v.id),remove=existing.filter(x=>!keep.includes(x));
-      if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw new Error("Hapus varian: "+error.message)}
-      const updates=rs.filter(v=>v.id).map(v=>db.from("product_variants").update({name:v.name,sku:v.sku,price:v.price,stock:v.stock,is_active:true}).eq("id",v.id));
-      const updateResults=await Promise.all(updates);const updateError=updateResults.find(r=>r.error);if(updateError?.error)throw new Error("Update varian: "+updateError.error.message);
-      const inserts=rs.filter(v=>!v.id).map(v=>({product_id:productId,name:v.name,sku:v.sku,price:v.price,stock:v.stock,is_active:true}));
-      if(inserts.length){const {error}=await db.from("product_variants").insert(inserts);if(error)throw new Error("Tambah varian: "+error.message)}
+      const {data:productId,error:saveError}=await db.rpc("postku_save_product",{p_id:id||null,p_name:name,p_price:price,p_category:cat,p_stock:stock,p_sku:sku,p_image_url:image_url,p_variants:rs});
+      if(saveError)throw new Error(saveError.message||"Gagal menyimpan produk");
       closeModal();await loadProducts();renderProducts();toast("Produk berhasil disimpan");
     }catch(e){console.error(e);toast("Gagal menyimpan: "+(e.message||"periksa izin database"))}finally{btn.disabled=false;btn.textContent="Simpan Produk"}
   };
@@ -333,10 +322,9 @@ async function loadCashiers(){
     const {data:session}=await db.auth.getSession();
     const token=session?.session?.access_token;
     if(!token){box.innerHTML='<div class="muted">Sesi login tidak ditemukan.</div>';return}
-    const r=await fetch(`${window.POSTKU_SUPABASE_URL}/functions/v1/postku-admin-users`,{headers:{Authorization:`Bearer ${token}`,apikey:window.POSTKU_SUPABASE_KEY}});
-    const data=await r.json();
-    if(!r.ok)throw new Error(data?.error||"Gagal memuat akun kasir");
-    const users=data.users||[];
+    const {data,error}=await db.functions.invoke("postku-admin-users",{method:"GET"});
+    if(error)throw new Error(error.message||"Gagal memuat akun kasir");
+    const users=data?.users||[];
     box.innerHTML=users.map(u=>`<div class="user-row"><div><b>${esc(u.display_name||u.username)}</b><small class="muted">@${esc(u.username)}</small></div><span class="badge paid">KASIR</span></div>`).join("")||'<div class="muted">Belum ada akun kasir.</div>';
   }catch(e){console.error(e);box.innerHTML='<div class="muted">Gagal memuat akun kasir.</div>'}
 }
@@ -348,9 +336,9 @@ async function createCashier(){
     if(!username||!password){toast("Username dan password wajib diisi");return}
     btn.disabled=true;btn.textContent="Membuat…";
     try{
-      const {data:session}=await db.auth.getSession();const token=session?.session?.access_token;if(!token)throw new Error("Sesi login tidak ditemukan");
-      const r=await fetch(`${window.POSTKU_SUPABASE_URL}/functions/v1/postku-admin-users`,{method:"POST",headers:{Authorization:`Bearer ${token}`,apikey:window.POSTKU_SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({username,display_name:display_name||username,password})});
-      const data=await r.json();if(!r.ok)throw new Error(data?.error||"Gagal membuat akun");
+      const {data,error}=await db.functions.invoke("postku-admin-users",{method:"POST",body:{username,display_name:display_name||username,password}});
+      if(error)throw new Error(error.message||"Gagal membuat akun");
+      if(data?.error)throw new Error(data.error);
       closeModal();await loadCashiers();toast(`Akun kasir @${username} berhasil dibuat`);
     }catch(e){console.error(e);toast(e.message||"Gagal membuat akun kasir")}finally{btn.disabled=false;btn.textContent="Buat Akun Kasir"}
   };
@@ -393,7 +381,7 @@ document.addEventListener("click",async e=>{
   const rep=e.target.closest("[data-reprint]");if(rep){const o=S.orders.find(x=>x.id===rep.dataset.reprint);if(o)printReceipt(o);return;}
   const vo=e.target.closest("[data-void]");if(vo&&confirm("Void transaksi ini?"))return voidOrder(vo.dataset.void);
   const edit=e.target.closest("[data-edit]");if(edit)return productModal(edit.dataset.edit);
-  const del=e.target.closest("[data-delete]");if(del&&confirm("Hapus produk?")){const {error}=await db.from("products").delete().eq("id",del.dataset.delete);if(error)toast("Gagal menghapus produk");else{await loadProducts();renderProducts();toast("Produk dihapus");}return;}
+  const del=e.target.closest("[data-delete]");if(del&&confirm("Hapus produk?")){const {error}=await db.rpc("postku_delete_product",{p_id:del.dataset.delete});if(error)toast("Gagal menghapus produk: "+error.message);else{await refreshData();renderProducts();toast("Produk dihapus");}return;}
 });
 document.getElementById("loginBtn").onclick=login;
 document.getElementById("loginPass").onkeydown=e=>{if(e.key==="Enter")login()};
