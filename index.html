@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="styles.css">
+<title>POSTKU</title>
+</head>
+<body>
+<header class="topbar">
+  <div><strong>POSTKU</strong><span id="storeName">Kasir</span></div>
+  <button id="installBtn" class="ghost hidden">Install</button>
+</header>
+
+<main>
+<section id="dashboard" class="page active">
+  <h1>Dashboard</h1>
+  <div class="stats">
+    <div><small>Penjualan Hari Ini</small><b id="todaySales">Rp0</b></div>
+    <div><small>Transaksi</small><b id="todayOrders">0</b></div>
+    <div><small>Rata-rata</small><b id="avgOrder">Rp0</b></div>
+  </div>
+  <button class="primary big" onclick="showPage('cashier')">Mulai Kasir</button>
+  <div class="card">
+    <h3>POSTKU siap digunakan</h3>
+    <p>Data menu dan transaksi disimpan di perangkat ini. Internet tidak diperlukan untuk fungsi dasar.</p>
+  </div>
+</section>
+
+<section id="cashier" class="page">
+  <div class="section-head"><h1>Kasir</h1><button class="ghost" onclick="clearCart()">Kosongkan</button></div>
+  <div id="categories" class="chips"></div>
+  <div id="products" class="products"></div>
+  <div class="cart card">
+    <h3>Keranjang</h3><div id="cartItems"></div>
+    <div class="total"><span>Total</span><b id="cartTotal">Rp0</b></div>
+    <textarea id="note" placeholder="Catatan order (opsional)"></textarea>
+    <button class="primary big" onclick="openPayment()">Bayar</button>
+  </div>
+</section>
+
+<section id="menu" class="page">
+  <div class="section-head"><h1>Menu</h1><button class="primary" onclick="openProductForm()">+ Produk</button></div>
+  <div id="menuList"></div>
+</section>
+
+<section id="history" class="page">
+  <div class="section-head"><h1>Riwayat</h1></div>
+  <div id="historyList"></div>
+</section>
+
+<section id="reports" class="page">
+  <div class="section-head"><h1>Laporan</h1></div>
+  <div class="stats">
+    <div><small>Hari Ini</small><b id="reportToday">Rp0</b></div>
+    <div><small>Bulan Ini</small><b id="reportMonth">Rp0</b></div>
+  </div>
+  <div class="card"><h3>Metode Pembayaran</h3><div id="paymentReport"></div></div>
+  <div class="card"><h3>Produk Terlaris</h3><div id="bestProducts"></div></div>
+</section>
+
+<section id="settings" class="page">
+  <h1>Pengaturan</h1>
+  <div class="card form">
+    <label>Nama toko<input id="storeInput" placeholder="Nama toko"></label>
+    <label>Footer struk<textarea id="footerInput" placeholder="Terima kasih"></textarea></label>
+    <button class="primary" onclick="saveSettings()">Simpan</button>
+  </div>
+</section>
+</main>
+
+<nav class="nav">
+  <button onclick="showPage('dashboard')">⌂<span>Home</span></button>
+  <button onclick="showPage('cashier')">＋<span>Kasir</span></button>
+  <button onclick="showPage('menu')">☷<span>Menu</span></button>
+  <button onclick="showPage('history')">▤<span>Riwayat</span></button>
+  <button onclick="showPage('reports')">▥<span>Laporan</span></button>
+  <button onclick="showPage('settings')">⚙<span>Setelan</span></button>
+</nav>
+
+<div id="paymentModal" class="modal hidden">
+ <div class="modal-box">
+  <div class="section-head"><h2>Pembayaran</h2><button class="ghost" onclick="closePayment()">×</button></div>
+  <h2 id="payTotal">Rp0</h2>
+  <div class="payment-methods">
+   <button onclick="setMethod('Tunai')">Tunai</button><button onclick="setMethod('QRIS')">QRIS</button>
+   <button onclick="setMethod('Transfer')">Transfer</button><button onclick="setMethod('Debit')">Debit</button>
+  </div>
+  <p id="selectedMethod">Metode: Tunai</p>
+  <label id="cashBox">Uang diterima<input id="cashReceived" inputmode="numeric" oninput="calcChange()" placeholder="0"></label>
+  <div class="change">Kembalian: <b id="change">Rp0</b></div>
+  <button class="primary big" onclick="finishPayment()">Selesaikan Transaksi</button>
+ </div>
+</div>
+
+<div id="productModal" class="modal hidden">
+ <div class="modal-box">
+  <div class="section-head"><h2 id="formTitle">Produk</h2><button class="ghost" onclick="closeProductForm()">×</button></div>
+  <div class="form">
+   <label>Nama<input id="pName"></label>
+   <label>Harga<input id="pPrice" inputmode="numeric"></label>
+   <label>Kategori<input id="pCategory" placeholder="Makanan"></label>
+   <button class="primary big" onclick="saveProduct()">Simpan</button>
+  </div>
+ </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
