@@ -30,19 +30,19 @@ async function loadSettings(){
   if(data) S.settings={...S.settings,shopName:data.store_name||"POSTKU",bankName:data.bank_name||"",bankOwner:data.bank_account_name||"",bankAccount:data.bank_account_number||"",qris:data.qris_image_url||""};
 }
 async function loadProducts(){
-  const {data,error}=await db.from("products").select("id,name,category,price,image_url,is_active,sku,stock,unit").eq("is_active",true).order("name").limit(500);
-  if(error){toast("Gagal memuat produk");console.error(error);return;}
-  S.products=(data||[]).map(p=>({...p,cat:p.category||"Lainnya",img:p.image_url||""}));
+  const {data,error}=await db.from("products").select("id,name,category,price,image_url,is_active,sku,stock,unit,product_variants(id,name,sku,price,stock,is_active)").eq("is_active",true).order("name").limit(500);
+  if(error){toast("Gagal memuat produk: "+error.message);console.error(error);return;}
+  S.products=(data||[]).map(p=>({...p,cat:p.category||"Lainnya",img:p.image_url||"",variants:(p.product_variants||[]).filter(v=>v.is_active).map(v=>({...v,price:v.price==null?Number(p.price):Number(v.price)}))}));
 }
 async function loadOrders(){
-  const {data,error}=await db.from("orders").select("id,order_number,customer_name,status,total,discount,notes,created_at,completed_at,cashier_id,order_items(id,product_id,product_name,quantity,unit_price,subtotal),payments(method,amount,status,reference,account_name,bank_name,paid_at)").order("created_at",{ascending:false}).limit(100);
+  const {data,error}=await db.from("orders").select("id,order_number,customer_name,status,total,discount,notes,created_at,completed_at,cashier_id,order_items(id,product_id,variant_id,variant_name,product_name,quantity,unit_price,subtotal),payments(method,amount,status,reference,account_name,bank_name,paid_at)").order("created_at",{ascending:false}).limit(100);
   if(error){toast("Gagal memuat transaksi");console.error(error);return;}
   S.orders=(data||[]).map(o=>{
     const pay=(o.payments||[])[0];
     return {id:o.id,number:o.order_number,displayId:"ORD-"+String(o.order_number),date:o.created_at,buyer:o.customer_name||"Umum",
       status:o.status==="completed"?"paid":o.status, total:Number(o.total)||0, discount:Number(o.discount)||0,
       cashier:o.cashier_id===current?.id?(current.username||current.display_name||"Kasir"):"Kasir",
-      cashier_id:o.cashier_id, items:(o.order_items||[]).map(i=>({id:i.product_id,name:i.product_name,price:Number(i.unit_price)||0,qty:i.quantity})),
+      cashier_id:o.cashier_id, items:(o.order_items||[]).map(i=>({id:i.product_id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,name:i.product_name,price:Number(i.unit_price)||0,qty:i.quantity})),
       method:pay?({cash:"Tunai",qris:"QRIS",transfer:"Transfer"}[pay.method]||pay.method):"-",
       cash:pay?.method==="cash"?Number(pay.amount)||0:0, change:0, payment:pay};
   });
@@ -146,14 +146,26 @@ function renderKasir(){
   document.getElementById("categoryBar").innerHTML=cats.map(c=>`<button class="chip ${activeCat===c?"active":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
   const q=document.getElementById("productSearch").value.toLowerCase();
   const list=S.products.filter(p=>(activeCat==="Semua"||p.cat===activeCat)&&p.name.toLowerCase().includes(q));
-  document.getElementById("productGrid").innerHTML=list.map(p=>`<button class="product-card" data-add="${p.id}"><img loading="lazy" class="product-photo" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="product-info"><div class="product-name">${esc(p.name)}</div><div class="product-price">${rupiah(p.price)}</div></div></button>`).join("")||'<div class="panel muted">Produk tidak ditemukan.</div>';
-  document.getElementById("buyerName").value=S.buyerName||""; document.getElementById("tableNo").value=S.tableNo||""; renderCart();
+  document.getElementById("productGrid").innerHTML=list.map(p=>`<button class="product-card" data-add="${p.id}"><img loading="lazy" class="product-photo" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="product-info"><div class="product-name">${esc(p.name)}</div><div class="product-price">${p.variants?.length?`${p.variants.length} varian`:rupiah(p.price)}</div></div></button>`).join("")||'<div class="panel muted">Produk tidak ditemukan.</div>';
+  document.getElementById("buyerName").value=S.buyerName||"";document.getElementById("tableNo").value=S.tableNo||"";renderCart();
 }
-function addToCart(id){const p=S.products.find(x=>String(x.id)===String(id));if(!p)return;const i=S.cart.find(x=>String(x.id)===String(id));if(i)i.qty++;else S.cart.push({id:p.id,name:p.name,price:Number(p.price),qty:1});localSave();renderCart();}
+function chooseVariant(productId){
+  const p=S.products.find(x=>String(x.id)===String(productId));if(!p)return;
+  if(!p.variants?.length){addToCart(productId,null);return}
+  openModal(`<h2>${esc(p.name)}</h2><p class="muted">Pilih rasa / varian</p><div class="variant-choices">${p.variants.map(v=>`<button class="variant-choice" data-variant="${v.id}"><span><b>${esc(v.name)}</b><small>Stok ${Number(v.stock)||0}</small></span><strong>${rupiah(v.price)}</strong></button>`).join("")}</div>`);
+  document.querySelectorAll("[data-variant]").forEach(b=>b.onclick=()=>{addToCart(p.id,b.dataset.variant);closeModal()});
+}
+function addToCart(id,variantId=null){
+  const p=S.products.find(x=>String(x.id)===String(id));if(!p)return;const v=variantId?p.variants.find(x=>String(x.id)===String(variantId)):null;
+  if(v&&v.stock<=0){toast("Varian sedang habis");return}
+  const key=variantId?`${id}:${variantId}`:`${id}:base`,i=S.cart.find(x=>x.key===key);
+  if(i){if(v&&i.qty>=v.stock){toast("Stok varian tidak cukup");return}i.qty++}
+  else S.cart.push({key,id:p.id,variant_id:v?.id||null,variant_name:v?.name||null,name:p.name,price:Number(v?.price??p.price),qty:1,maxStock:v?.stock??null});
+  localSave();renderCart();
+}
 function renderCart(){
-  document.getElementById("cartItems").innerHTML=S.cart.map(i=>`<div class="cart-row"><div class="grow"><b>${esc(i.name)}</b><small>${rupiah(i.price)} × ${i.qty}</small></div><div class="qty"><button data-minus="${i.id}">−</button><b>${i.qty}</b><button data-plus="${i.id}">+</button></div></div>`).join("")||'<div class="empty muted">Keranjang kosong.</div>';
-  document.getElementById("cartCount").textContent=`${S.cart.reduce((a,i)=>a+i.qty,0)} item`;
-  document.getElementById("cartTotal").textContent=rupiah(cartTotal());
+  document.getElementById("cartItems").innerHTML=S.cart.map(i=>`<div class="cart-row"><div class="grow"><b>${esc(i.name)}${i.variant_name?` — ${esc(i.variant_name)}`:""}</b><small>${rupiah(i.price)} × ${i.qty}</small></div><div class="qty"><button data-minus="${esc(i.key)}">−</button><b>${i.qty}</b><button data-plus="${esc(i.key)}">+</button></div></div>`).join("")||'<div class="empty muted">Keranjang kosong.</div>';
+  document.getElementById("cartCount").textContent=`${S.cart.reduce((a,i)=>a+i.qty,0)} item`;document.getElementById("cartTotal").textContent=rupiah(cartTotal());
 }
 function cartTotal(){return S.cart.reduce((a,i)=>a+i.price*i.qty,0);}
 function clearCart(){clearLocalCart();renderCart();}
@@ -177,7 +189,7 @@ async function finishPayment(method,total){
   const orderPayload={customer_name:document.getElementById("payBuyer")?.value?.trim()||S.buyerName||"Umum",status:"completed",total,discount:0,cashier_id:current.id,completed_at:now.toISOString(),created_at:now.toISOString()};
   const {data:order,error}=await db.from("orders").insert(orderPayload).select("id,order_number,created_at").single();
   if(error){console.error(error);toast("Gagal menyimpan transaksi");return;}
-  const items=S.cart.map(i=>({order_id:order.id,product_id:i.id,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty}));
+  const items=S.cart.map(i=>({order_id:order.id,product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty}));
   const {error:ie}=await db.from("order_items").insert(items);
   if(ie){console.error(ie);await db.from("orders").delete().eq("id",order.id);toast("Detail transaksi gagal disimpan");return;}
   const payment={order_id:order.id,method,amount:cash,status:"paid",reference:method==="transfer"?(document.getElementById("payRef")?.value||null):null,paid_at:now.toISOString()};
@@ -190,7 +202,7 @@ async function createPending(){
   if(!S.cart.length){toast("Keranjang masih kosong");return}
   const {data:order,error}=await db.from("orders").insert({customer_name:S.buyerName||"Umum",status:"pending",total:cartTotal(),cashier_id:current.id}).select("id,order_number,created_at").single();
   if(error){console.error(error);toast("Gagal membuat pending");return;}
-  const {error:ie}=await db.from("order_items").insert(S.cart.map(i=>({order_id:order.id,product_id:i.id,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty})));
+  const {error:ie}=await db.from("order_items").insert(S.cart.map(i=>({order_id:order.id,product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price,subtotal:i.price*i.qty})));
   if(ie){console.error(ie);toast("Gagal menyimpan item pending");return;}
   clearLocalCart();await loadOrders();go("orders");toast("Pesanan disimpan sebagai pending");
 }
@@ -215,30 +227,34 @@ async function voidOrder(id){
   if(error){toast("Gagal void");return} await loadOrders();renderOrders();toast("Transaksi di-void");
 }
 function renderProducts(){
-  document.getElementById("productsList").innerHTML=S.products.map(p=>`<div class="admin-product"><img loading="lazy" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`).join("")||'<div class="panel muted">Belum ada produk.</div>';
+  document.getElementById("productsList").innerHTML=S.products.map(p=>{const vars=p.variants||[];return `<div class="admin-product"><img loading="lazy" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${vars.length?vars.map(v=>`${esc(v.name)} (${v.stock})`).join(" · "):rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`}).join("")||'<div class="panel muted">Belum ada produk.</div>';
 }
 async function uploadProductImage(file){
-  const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";
-  const path=`${current.id}/${crypto.randomUUID()}.${ext}`;
-  const {error}=await db.storage.from("product-images").upload(path,file,{upsert:false,contentType:file.type,cacheControl:"31536000"});
-  if(error)throw error;
+  const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";const path=`${current.id}/${crypto.randomUUID()}.${ext}`;
+  const {error}=await db.storage.from("product-images").upload(path,file,{upsert:false,contentType:file.type,cacheControl:"31536000"});if(error)throw error;
   return db.storage.from("product-images").getPublicUrl(path).data.publicUrl;
 }
 function productModal(id=null){
-  const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:"",cat:"Makanan",img:"",stock:0,sku:"",unit:"pcs"};
-  openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2><div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}"></div><div class="field"><label>Harga</label><input id="pPrice" type="number" value="${p.price}"></div><div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}"></div><div class="field"><label>Stok</label><input id="pStock" type="number" min="0" value="${p.stock||0}"></div><div class="field"><label>SKU (opsional)</label><input id="pSku" value="${esc(p.sku||"")}"></div><div class="field"><label>Foto produk</label><input id="pFile" type="file" accept="image/*"><img id="pPrev" class="qris-preview" src="${esc(p.img||placeholder())}"></div><button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
+  const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:0,cat:"Makanan",img:"",stock:0,sku:"",variants:[]};let variants=(p.variants||[]).map(v=>({id:v.id,name:v.name,price:v.price,stock:v.stock,sku:v.sku||""}));
+  const rows=()=>variants.map((v,i)=>`<div class="variant-edit-row" data-vrow="${i}"><input class="v-name" value="${esc(v.name)}" placeholder="Varian, contoh Matcha"><input class="v-price" type="number" min="0" value="${v.price??p.price??0}" placeholder="Harga"><input class="v-stock" type="number" min="0" value="${v.stock??0}" placeholder="Stok"><input class="v-sku" value="${esc(v.sku||"")}" placeholder="SKU"><button type="button" class="danger-btn" data-remove-v="${i}">×</button></div>`).join("");
+  openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2><div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}"></div><div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}"></div><div class="field"><label>Harga dasar <span class="muted">(tanpa varian)</span></label><input id="pPrice" type="number" min="0" value="${p.price||0}"></div><div class="field"><label>Stok dasar <span class="muted">(tanpa varian)</span></label><input id="pStock" type="number" min="0" value="${p.stock||0}"></div><div class="field"><label>SKU dasar</label><input id="pSku" value="${esc(p.sku||"")}"></div><div class="field"><label>Foto produk</label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><img id="pPrev" class="qris-preview" src="${esc(p.img||placeholder())}"></div><div class="field"><div class="variant-head"><label>Varian / Rasa</label><button type="button" class="secondary" id="addVariantRow">+ Tambah Varian</button></div><div id="variantRows">${rows()}</div><small class="muted">Contoh: Matcha stok 10, Coklat stok 10.</small></div><button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
+  const redraw=()=>document.getElementById("variantRows").innerHTML=rows();const bind=()=>document.querySelectorAll("[data-remove-v]").forEach(b=>b.onclick=()=>{variants.splice(Number(b.dataset.removeV),1);redraw();bind()});
+  document.getElementById("addVariantRow").onclick=()=>{variants.push({name:"",price:Number(p.price)||0,stock:0,sku:""});redraw();bind()};bind();
   document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(f)document.getElementById("pPrev").src=URL.createObjectURL(f)};
   document.getElementById("saveProduct").onclick=async()=>{
-    const name=document.getElementById("pName").value.trim(),price=Number(document.getElementById("pPrice").value),cat=document.getElementById("pCat").value.trim()||"Lainnya",stock=Number(document.getElementById("pStock").value)||0,sku=document.getElementById("pSku").value.trim()||null,file=document.getElementById("pFile").files[0];
-    if(!name||!price){toast("Lengkapi data produk");return}
+    const name=document.getElementById("pName").value.trim(),price=Number(document.getElementById("pPrice").value)||0,cat=document.getElementById("pCat").value.trim()||"Lainnya",stock=Number(document.getElementById("pStock").value)||0,sku=document.getElementById("pSku").value.trim()||null,file=document.getElementById("pFile").files[0];
+    const rs=[...document.querySelectorAll(".variant-edit-row")].map(row=>{const i=Number(row.dataset.vrow),old=variants[i]||{};return{id:old.id||null,name:row.querySelector(".v-name").value.trim(),price:Number(row.querySelector(".v-price").value)||0,stock:Number(row.querySelector(".v-stock").value)||0,sku:row.querySelector(".v-sku").value.trim()||null}});
+    if(!name){toast("Nama produk wajib diisi");return}if(rs.some(v=>!v.name)){toast("Nama semua varian wajib diisi");return}
     const btn=document.getElementById("saveProduct");btn.disabled=true;
     try{
       let image_url=p.img||null;if(file)image_url=await uploadProductImage(file);
-      const payload={name,price,category:cat,stock,sku,image_url,is_active:true};
-      const result=id?await db.from("products").update(payload).eq("id",id).select().single():await db.from("products").insert(payload).select().single();
-      if(result.error)throw result.error;
-      closeModal();await loadProducts();renderProducts();toast("Produk tersimpan");
-    }catch(e){console.error(e);toast("Produk gagal disimpan")}finally{btn.disabled=false}
+      const result=id?await db.from("products").update({name,price,category:cat,stock,sku,image_url,is_active:true}).eq("id",id).select().single():await db.from("products").insert({name,price,category:cat,stock,sku,image_url,is_active:true}).select().single();
+      if(result.error)throw result.error;const productId=result.data.id;
+      const existing=(p.variants||[]).map(v=>v.id),keep=rs.filter(v=>v.id).map(v=>v.id),remove=existing.filter(x=>!keep.includes(x));
+      if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw error}
+      if(rs.length){const {error}=await db.from("product_variants").upsert(rs.map(v=>({...v,product_id:productId,is_active:true})),{onConflict:"id"});if(error)throw error}
+      closeModal();await loadProducts();renderProducts();toast("Produk berhasil disimpan");
+    }catch(e){console.error(e);toast("Gagal menyimpan: "+(e.message||"periksa izin database"))}finally{btn.disabled=false}
   };
 }
 function renderReports(){
@@ -276,10 +292,10 @@ function testPrint(){const o={displayId:"TEST-001",date:new Date().toISOString()
 
 document.addEventListener("click",async e=>{
   const nav=e.target.closest("[data-nav]");if(nav)return go(nav.dataset.nav);
-  const add=e.target.closest("[data-add]");if(add)return addToCart(add.dataset.add);
+  const add=e.target.closest("[data-add]");if(add)return chooseVariant(add.dataset.add);
   const chip=e.target.closest("[data-cat]");if(chip){activeCat=chip.dataset.cat;return renderKasir();}
   const plus=e.target.closest("[data-plus]"),minus=e.target.closest("[data-minus]");
-  if(plus||minus){const id=String(plus?.dataset.plus||minus?.dataset.minus),i=S.cart.find(x=>String(x.id)===id);if(i){if(plus)i.qty++;else i.qty--;if(i.qty<=0)S.cart=S.cart.filter(x=>String(x.id)!==id);localSave();renderCart();}return;}
+  if(plus||minus){const key=String(plus?.dataset.plus||minus?.dataset.minus),i=S.cart.find(x=>x.key===key);if(i){if(plus){if(i.maxStock!=null&&i.qty>=i.maxStock){toast("Stok varian tidak cukup");return}i.qty++;}else i.qty--;if(i.qty<=0)S.cart=S.cart.filter(x=>x.key!==key);localSave();renderCart();}return;}
   const tab=e.target.closest("[data-status]");if(tab){orderFilter=tab.dataset.status;document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===tab));renderOrders();return;}
   const resume=e.target.closest("[data-resume]");if(resume)return resumeOrder(resume.dataset.resume);
   const cancel=e.target.closest("[data-cancel]");if(cancel&&confirm("Batalkan pesanan ini?"))return cancelOrder(cancel.dataset.cancel);
