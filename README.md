@@ -27,3 +27,11 @@ POSTKU v2.2: UI responsif diperbarui, chart mendukung 1 Hari, 7 Hari, 30 Hari, 3
 
 ## POSTKU v3 Supabase
 This build connects authentication, products, orders, payments, settings, and product images to the POSTKU Supabase project. Do not add a service-role key to the frontend.
+
+
+## POSTKU v4.1
+- Memperbaiki penyimpanan produk/varian: varian baru tidak lagi dikirim dengan `id:null`.
+- Varian memiliki nama, harga, stok, dan SKU opsional.
+- Form varian dibuat lebih nyaman di HP.
+- Pesan error penyimpanan dibuat lebih jelas.
+- Service worker cache dinaikkan versinya agar perubahan UI tidak tertahan cache lama.

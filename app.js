@@ -235,26 +235,51 @@ async function uploadProductImage(file){
   return db.storage.from("product-images").getPublicUrl(path).data.publicUrl;
 }
 function productModal(id=null){
-  const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:0,cat:"Makanan",img:"",stock:0,sku:"",variants:[]};let variants=(p.variants||[]).map(v=>({id:v.id,name:v.name,price:v.price,stock:v.stock,sku:v.sku||""}));
-  const rows=()=>variants.map((v,i)=>`<div class="variant-edit-row" data-vrow="${i}"><input class="v-name" value="${esc(v.name)}" placeholder="Varian, contoh Matcha"><input class="v-price" type="number" min="0" value="${v.price??p.price??0}" placeholder="Harga"><input class="v-stock" type="number" min="0" value="${v.stock??0}" placeholder="Stok"><input class="v-sku" value="${esc(v.sku||"")}" placeholder="SKU"><button type="button" class="danger-btn" data-remove-v="${i}">×</button></div>`).join("");
-  openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2><div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}"></div><div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}"></div><div class="field"><label>Harga dasar <span class="muted">(tanpa varian)</span></label><input id="pPrice" type="number" min="0" value="${p.price||0}"></div><div class="field"><label>Stok dasar <span class="muted">(tanpa varian)</span></label><input id="pStock" type="number" min="0" value="${p.stock||0}"></div><div class="field"><label>SKU dasar</label><input id="pSku" value="${esc(p.sku||"")}"></div><div class="field"><label>Foto produk</label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><img id="pPrev" class="qris-preview" src="${esc(p.img||placeholder())}"></div><div class="field"><div class="variant-head"><label>Varian / Rasa</label><button type="button" class="secondary" id="addVariantRow">+ Tambah Varian</button></div><div id="variantRows">${rows()}</div><small class="muted">Contoh: Matcha stok 10, Coklat stok 10.</small></div><button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
-  const redraw=()=>document.getElementById("variantRows").innerHTML=rows();const bind=()=>document.querySelectorAll("[data-remove-v]").forEach(b=>b.onclick=()=>{variants.splice(Number(b.dataset.removeV),1);redraw();bind()});
-  document.getElementById("addVariantRow").onclick=()=>{variants.push({name:"",price:Number(p.price)||0,stock:0,sku:""});redraw();bind()};bind();
-  document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(f)document.getElementById("pPrev").src=URL.createObjectURL(f)};
+  const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:0,cat:"Makanan",img:"",stock:0,sku:"",variants:[]};
+  let variants=(p.variants||[]).map(v=>({id:v.id,name:v.name,price:v.price,stock:v.stock,sku:v.sku||""}));
+  const rows=()=>variants.map((v,i)=>`<div class="variant-edit-row" data-vrow="${i}">
+    <div class="variant-field"><label>Nama / rasa</label><input class="v-name" value="${esc(v.name)}" placeholder="Contoh: Matcha"></div>
+    <div class="variant-field"><label>Harga</label><input class="v-price" type="number" min="0" value="${v.price??p.price??0}" inputmode="numeric" placeholder="10000"></div>
+    <div class="variant-field"><label>Stok</label><input class="v-stock" type="number" min="0" value="${v.stock??0}" inputmode="numeric" placeholder="10"></div>
+    <div class="variant-field"><label>SKU <span class="muted">opsional</span></label><input class="v-sku" value="${esc(v.sku||"")}" placeholder="RSL-MT"></div>
+    <button type="button" class="danger-btn" data-remove-v="${i}" aria-label="Hapus varian">×</button>
+  </div>`).join("");
+  openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2>
+    <div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}" placeholder="Contoh: Risol"></div>
+    <div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}" placeholder="Makanan"></div>
+    <div class="field"><label>Harga dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pPrice" type="number" min="0" value="${p.price||0}" inputmode="numeric"></div>
+    <div class="field"><label>Stok dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pStock" type="number" min="0" value="${p.stock||0}" inputmode="numeric"></div>
+    <div class="field"><label>SKU dasar <span class="muted">(opsional)</span></label><input id="pSku" value="${esc(p.sku||"")}" placeholder="RSL"></div>
+    <div class="field"><label>Foto produk <span class="muted">JPG/PNG/WebP, maks. 1 MB</span></label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><img id="pPrev" class="product-modal-preview" src="${esc(p.img||placeholder())}" alt="Preview produk"></div>
+    <div class="field variant-section"><div class="variant-head"><div><label>Varian / Rasa</label><small class="muted">Satu produk dapat memiliki banyak varian dengan stok berbeda.</small></div><button type="button" class="secondary" id="addVariantRow">+ Tambah Varian</button></div>
+      <div id="variantRows">${rows()}</div><small class="muted">Contoh: Risol → Matcha stok 10, Coklat stok 10.</small>
+    </div>
+    <button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
+  const redraw=()=>document.getElementById("variantRows").innerHTML=rows();
+  const bind=()=>document.querySelectorAll("[data-remove-v]").forEach(b=>b.onclick=()=>{variants.splice(Number(b.dataset.removeV),1);redraw();bind()});
+  document.getElementById("addVariantRow").onclick=()=>{variants.push({id:null,name:"",price:Number(p.price)||0,stock:0,sku:""});redraw();bind();setTimeout(()=>document.querySelectorAll('.v-name')[document.querySelectorAll('.v-name').length-1]?.focus(),0)};
+  bind();
+  document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(!f)return;if(f.size>1024*1024){toast("Foto terlalu besar. Maksimal 1 MB.");e.target.value="";return}document.getElementById("pPrev").src=URL.createObjectURL(f)};
   document.getElementById("saveProduct").onclick=async()=>{
     const name=document.getElementById("pName").value.trim(),price=Number(document.getElementById("pPrice").value)||0,cat=document.getElementById("pCat").value.trim()||"Lainnya",stock=Number(document.getElementById("pStock").value)||0,sku=document.getElementById("pSku").value.trim()||null,file=document.getElementById("pFile").files[0];
-    const rs=[...document.querySelectorAll(".variant-edit-row")].map(row=>{const i=Number(row.dataset.vrow),old=variants[i]||{};return{id:old.id||null,name:row.querySelector(".v-name").value.trim(),price:Number(row.querySelector(".v-price").value)||0,stock:Number(row.querySelector(".v-stock").value)||0,sku:row.querySelector(".v-sku").value.trim()||null}});
-    if(!name){toast("Nama produk wajib diisi");return}if(rs.some(v=>!v.name)){toast("Nama semua varian wajib diisi");return}
-    const btn=document.getElementById("saveProduct");btn.disabled=true;
+    const rs=[...document.querySelectorAll(".variant-edit-row")].map(row=>{const i=Number(row.dataset.vrow),old=variants[i]||{};const item={name:row.querySelector(".v-name").value.trim(),price:Number(row.querySelector(".v-price").value)||0,stock:Number(row.querySelector(".v-stock").value)||0,sku:row.querySelector(".v-sku").value.trim()||null};if(old.id)item.id=old.id;return item});
+    if(!name){toast("Nama produk wajib diisi");return}
+    if(rs.some(v=>!v.name)){toast("Nama semua varian wajib diisi");return}
+    if(new Set(rs.map(v=>v.name.toLowerCase())).size!==rs.length){toast("Nama varian tidak boleh sama");return}
+    const btn=document.getElementById("saveProduct");btn.disabled=true;btn.textContent="Menyimpan…";
     try{
       let image_url=p.img||null;if(file)image_url=await uploadProductImage(file);
-      const result=id?await db.from("products").update({name,price,category:cat,stock,sku,image_url,is_active:true}).eq("id",id).select().single():await db.from("products").insert({name,price,category:cat,stock,sku,image_url,is_active:true}).select().single();
-      if(result.error)throw result.error;const productId=result.data.id;
+      const payload={name,price,category:cat,stock,sku,image_url,is_active:true};
+      const result=id?await db.from("products").update(payload).eq("id",id).select("id").single():await db.from("products").insert(payload).select("id").single();
+      if(result.error)throw new Error("Produk: "+result.error.message);const productId=result.data.id;
       const existing=(p.variants||[]).map(v=>v.id),keep=rs.filter(v=>v.id).map(v=>v.id),remove=existing.filter(x=>!keep.includes(x));
-      if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw error}
-      if(rs.length){const {error}=await db.from("product_variants").upsert(rs.map(v=>({...v,product_id:productId,is_active:true})),{onConflict:"id"});if(error)throw error}
+      if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw new Error("Hapus varian: "+error.message)}
+      const updates=rs.filter(v=>v.id).map(v=>db.from("product_variants").update({name:v.name,sku:v.sku,price:v.price,stock:v.stock,is_active:true}).eq("id",v.id));
+      const updateResults=await Promise.all(updates);const updateError=updateResults.find(r=>r.error);if(updateError?.error)throw new Error("Update varian: "+updateError.error.message);
+      const inserts=rs.filter(v=>!v.id).map(v=>({product_id:productId,name:v.name,sku:v.sku,price:v.price,stock:v.stock,is_active:true}));
+      if(inserts.length){const {error}=await db.from("product_variants").insert(inserts);if(error)throw new Error("Tambah varian: "+error.message)}
       closeModal();await loadProducts();renderProducts();toast("Produk berhasil disimpan");
-    }catch(e){console.error(e);toast("Gagal menyimpan: "+(e.message||"periksa izin database"))}finally{btn.disabled=false}
+    }catch(e){console.error(e);toast("Gagal menyimpan: "+(e.message||"periksa izin database"))}finally{btn.disabled=false;btn.textContent="Simpan Produk"}
   };
 }
 function renderReports(){
