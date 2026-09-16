@@ -1,112 +1,112 @@
 <!doctype html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111827">
-<link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="styles.css">
-<title>POSTKU</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="POSTKU - Point of Sale">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>POSTKU</title>
 </head>
 <body>
-<header class="topbar">
-  <div><strong>POSTKU</strong><span id="storeName">Kasir</span></div>
-  <button id="installBtn" class="ghost hidden">Install</button>
-</header>
+<div id="app">
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="brand-mark">P</div>
+      <div class="brand-title">POSTKU</div>
+      <div class="brand-subtitle">Point of Sale</div>
+      <div class="field"><label>Username</label><input id="loginUser" autocomplete="username" placeholder="Masukkan username"></div>
+      <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="Masukkan password"></div>
+      <button class="primary big" id="loginBtn">Masuk</button>
+      <div id="loginError" class="error"></div>
+      <div class="login-hint">Akun awal: <b>admin</b> / <b>admin123</b></div>
+    </div>
+  </section>
 
-<main>
-<section id="dashboard" class="page active">
-  <h1>Dashboard</h1>
-  <div class="stats">
-    <div><small>Penjualan Hari Ini</small><b id="todaySales">Rp0</b></div>
-    <div><small>Transaksi</small><b id="todayOrders">0</b></div>
-    <div><small>Rata-rata</small><b id="avgOrder">Rp0</b></div>
-  </div>
-  <button class="primary big" onclick="showPage('cashier')">Mulai Kasir</button>
-  <div class="card">
-    <h3>POSTKU siap digunakan</h3>
-    <p>Data menu dan transaksi disimpan di perangkat ini. Internet tidak diperlukan untuk fungsi dasar.</p>
-  </div>
-</section>
+  <section id="mainScreen" class="hidden">
+    <header class="topbar">
+      <div class="top-brand"><div class="mini-logo">P</div><div><b>POSTKU</b><small id="pageTitle">Kasir</small></div></div>
+      <div class="top-actions">
+        <span id="currentUser"></span>
+        <button class="icon-btn" id="logoutBtn" title="Keluar">↪</button>
+      </div>
+    </header>
 
-<section id="cashier" class="page">
-  <div class="section-head"><h1>Kasir</h1><button class="ghost" onclick="clearCart()">Kosongkan</button></div>
-  <div id="categories" class="chips"></div>
-  <div id="products" class="products"></div>
-  <div class="cart card">
-    <h3>Keranjang</h3><div id="cartItems"></div>
-    <div class="total"><span>Total</span><b id="cartTotal">Rp0</b></div>
-    <textarea id="note" placeholder="Catatan order (opsional)"></textarea>
-    <button class="primary big" onclick="openPayment()">Bayar</button>
-  </div>
-</section>
+    <main class="content">
+      <section id="view-dashboard" class="view">
+        <div class="hero"><div><span class="eyebrow">SELAMAT DATANG</span><h1>Dashboard</h1><p>Kelola penjualan dengan lebih cepat.</p></div><button class="primary" data-nav="kasir">+ Transaksi Baru</button></div>
+        <div class="stat-grid">
+          <div class="stat-card"><span>Omzet Hari Ini</span><strong id="statOmzet">Rp0</strong></div>
+          <div class="stat-card"><span>Transaksi Hari Ini</span><strong id="statTx">0</strong></div>
+          <div class="stat-card"><span>Pending</span><strong id="statPending">0</strong></div>
+          <div class="stat-card"><span>Produk</span><strong id="statProducts">0</strong></div>
+        </div>
+        <div class="panel"><div class="panel-head"><h2>Penjualan 7 Hari</h2></div><canvas id="salesChart" height="190"></canvas></div>
+        <div class="panel"><div class="panel-head"><h2>Produk Terlaris</h2></div><div id="topProducts" class="rank-list"></div></div>
+      </section>
 
-<section id="menu" class="page">
-  <div class="section-head"><h1>Menu</h1><button class="primary" onclick="openProductForm()">+ Produk</button></div>
-  <div id="menuList"></div>
-</section>
+      <section id="view-kasir" class="view hidden">
+        <div class="section-head"><div><span class="eyebrow">TRANSAKSI</span><h1>Kasir</h1></div><button class="ghost" id="clearCartBtn">Kosongkan</button></div>
+        <div class="cashier-layout">
+          <div class="product-area">
+            <div class="toolbar"><input id="productSearch" class="search" placeholder="🔎 Cari produk..."><div id="categoryBar" class="chips"></div></div>
+            <div id="productGrid" class="product-grid"></div>
+          </div>
+          <aside class="cart-panel">
+            <div class="cart-head"><h2>Keranjang</h2><span id="cartCount">0 item</span></div>
+            <div class="field"><label>Nama pembeli</label><input id="buyerName" placeholder="Contoh: Budi"></div>
+            <div class="field"><label>No. meja / order <span class="muted">(opsional)</span></label><input id="tableNo" placeholder="Contoh: M-05"></div>
+            <div id="cartItems" class="cart-items"></div>
+            <div class="cart-total"><span>Total</span><strong id="cartTotal">Rp0</strong></div>
+            <div class="cart-actions"><button class="secondary" id="pendingBtn">⏸ Pending</button><button class="primary" id="checkoutBtn">Bayar</button></div>
+          </aside>
+        </div>
+      </section>
 
-<section id="history" class="page">
-  <div class="section-head"><h1>Riwayat</h1></div>
-  <div id="historyList"></div>
-</section>
+      <section id="view-orders" class="view hidden">
+        <div class="section-head"><div><span class="eyebrow">PESANAN</span><h1>Pesanan</h1></div></div>
+        <div class="tabs"><button class="tab active" data-status="all">Semua</button><button class="tab" data-status="pending">Pending</button><button class="tab" data-status="paid">Selesai</button><button class="tab" data-status="cancelled">Dibatalkan</button></div>
+        <div id="ordersList" class="orders-list"></div>
+      </section>
 
-<section id="reports" class="page">
-  <div class="section-head"><h1>Laporan</h1></div>
-  <div class="stats">
-    <div><small>Hari Ini</small><b id="reportToday">Rp0</b></div>
-    <div><small>Bulan Ini</small><b id="reportMonth">Rp0</b></div>
-  </div>
-  <div class="card"><h3>Metode Pembayaran</h3><div id="paymentReport"></div></div>
-  <div class="card"><h3>Produk Terlaris</h3><div id="bestProducts"></div></div>
-</section>
+      <section id="view-products" class="view hidden">
+        <div class="section-head"><div><span class="eyebrow">INVENTORI</span><h1>Produk</h1></div><button class="primary" id="addProductBtn">+ Tambah Produk</button></div>
+        <div id="productsList" class="products-admin"></div>
+      </section>
 
-<section id="settings" class="page">
-  <h1>Pengaturan</h1>
-  <div class="card form">
-    <label>Nama toko<input id="storeInput" placeholder="Nama toko"></label>
-    <label>Footer struk<textarea id="footerInput" placeholder="Terima kasih"></textarea></label>
-    <button class="primary" onclick="saveSettings()">Simpan</button>
-  </div>
-</section>
-</main>
+      <section id="view-reports" class="view hidden">
+        <div class="section-head"><div><span class="eyebrow">ANALITIK</span><h1>Laporan Penjualan</h1></div><button class="secondary" id="exportBtn">Export CSV</button></div>
+        <div class="stat-grid"><div class="stat-card"><span>Total omzet</span><strong id="reportOmzet">Rp0</strong></div><div class="stat-card"><span>Transaksi selesai</span><strong id="reportTx">0</strong></div><div class="stat-card"><span>Rata-rata transaksi</span><strong id="reportAvg">Rp0</strong></div><div class="stat-card"><span>QRIS + Transfer</span><strong id="reportDigital">Rp0</strong></div></div>
+        <div class="panel"><div class="panel-head"><h2>Grafik 30 Hari</h2></div><canvas id="reportChart" height="220"></canvas></div>
+        <div class="panel"><div class="panel-head"><h2>Metode Pembayaran</h2></div><div id="paymentBreakdown" class="rank-list"></div></div>
+      </section>
 
-<nav class="nav">
-  <button onclick="showPage('dashboard')">⌂<span>Home</span></button>
-  <button onclick="showPage('cashier')">＋<span>Kasir</span></button>
-  <button onclick="showPage('menu')">☷<span>Menu</span></button>
-  <button onclick="showPage('history')">▤<span>Riwayat</span></button>
-  <button onclick="showPage('reports')">▥<span>Laporan</span></button>
-  <button onclick="showPage('settings')">⚙<span>Setelan</span></button>
-</nav>
+      <section id="view-settings" class="view hidden">
+        <div class="section-head"><div><span class="eyebrow">KONFIGURASI</span><h1>Pengaturan</h1></div><button class="primary" id="saveSettingsBtn">Simpan</button></div>
+        <div class="settings-grid">
+          <div class="panel"><h2>Toko</h2><div class="field"><label>Nama toko</label><input id="shopName"></div><div class="field"><label>Alamat</label><input id="shopAddress"></div><div class="field"><label>No. telepon</label><input id="shopPhone"></div></div>
+          <div class="panel"><h2>Pembayaran</h2><div class="field"><label>Bank</label><input id="bankName" placeholder="BCA"></div><div class="field"><label>No. rekening</label><input id="bankAccount"></div><div class="field"><label>Atas nama</label><input id="bankOwner"></div><div class="field"><label>QRIS gambar</label><input id="qrisInput" type="file" accept="image/*"><img id="qrisPreview" class="qris-preview hidden"></div></div>
+          <div class="panel"><h2>Printer</h2><div class="field"><label>Ukuran kertas</label><select id="paperSize"><option value="58">58 mm</option><option value="80">80 mm</option></select></div><p class="muted">Cetak order dan struk menggunakan dialog print Chrome. Untuk printer thermal Bluetooth, pilih printer thermal saat dialog cetak jika didukung perangkat.</p><button class="secondary" id="testPrintBtn">Cetak Test</button></div>
+          <div class="panel admin-only"><h2>Pengguna</h2><div id="usersList"></div><button class="secondary" id="addUserBtn">+ Tambah Kasir</button></div>
+        </div>
+      </section>
+    </main>
 
-<div id="paymentModal" class="modal hidden">
- <div class="modal-box">
-  <div class="section-head"><h2>Pembayaran</h2><button class="ghost" onclick="closePayment()">×</button></div>
-  <h2 id="payTotal">Rp0</h2>
-  <div class="payment-methods">
-   <button onclick="setMethod('Tunai')">Tunai</button><button onclick="setMethod('QRIS')">QRIS</button>
-   <button onclick="setMethod('Transfer')">Transfer</button><button onclick="setMethod('Debit')">Debit</button>
-  </div>
-  <p id="selectedMethod">Metode: Tunai</p>
-  <label id="cashBox">Uang diterima<input id="cashReceived" inputmode="numeric" oninput="calcChange()" placeholder="0"></label>
-  <div class="change">Kembalian: <b id="change">Rp0</b></div>
-  <button class="primary big" onclick="finishPayment()">Selesaikan Transaksi</button>
- </div>
+    <nav class="bottom-nav">
+      <button data-nav="dashboard" class="nav active"><span>⌂</span><small>Home</small></button>
+      <button data-nav="kasir" class="nav"><span>▣</span><small>Kasir</small></button>
+      <button data-nav="orders" class="nav"><span>◷</span><small>Pesanan</small></button>
+      <button data-nav="products" class="nav admin-only"><span>□</span><small>Produk</small></button>
+      <button data-nav="reports" class="nav admin-only"><span>▥</span><small>Laporan</small></button>
+      <button data-nav="settings" class="nav"><span>⚙</span><small>Setelan</small></button>
+    </nav>
+  </section>
 </div>
 
-<div id="productModal" class="modal hidden">
- <div class="modal-box">
-  <div class="section-head"><h2 id="formTitle">Produk</h2><button class="ghost" onclick="closeProductForm()">×</button></div>
-  <div class="form">
-   <label>Nama<input id="pName"></label>
-   <label>Harga<input id="pPrice" inputmode="numeric"></label>
-   <label>Kategori<input id="pCategory" placeholder="Makanan"></label>
-   <button class="primary big" onclick="saveProduct()">Simpan</button>
-  </div>
- </div>
-</div>
-
+<div id="modal" class="modal hidden"><div class="modal-card"><button class="modal-close" id="modalClose">×</button><div id="modalBody"></div></div></div>
+<div id="toast" class="toast"></div>
 <script src="app.js"></script>
 </body>
 </html>

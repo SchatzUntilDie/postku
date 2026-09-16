@@ -1,27 +1,22 @@
-# POSTKU PWA - Tahap 1
-PWA POS offline-first untuk HP Android.
+# POSTKU v2
 
-Fitur:
-- Dashboard
-- Kasir/keranjang
-- Produk & kategori
+PWA POS sederhana untuk HP.
+
+## Fitur
+- Login username/password dan role Admin/Kasir
+- Produk dengan foto
+- Keranjang + nama pembeli + meja/order
+- Pending, lanjutkan, batalkan, void
 - Pembayaran Tunai, QRIS, Transfer, Debit
-- Hitung kembalian
-- Riwayat transaksi
-- Laporan penjualan
-- Cetak struk melalui dialog print browser
-- Install sebagai PWA
-- Penyimpanan lokal
+- QRIS dan rekening toko di Pengaturan
+- Cetak struk thermal 58/80 mm melalui dialog print
+- Dashboard dan grafik penjualan
+- Laporan + export CSV
+- PWA/offline cache
 
-Catatan printer:
-Versi ini belum melakukan koneksi Bluetooth/USB langsung ke printer thermal. Tombol Cetak menggunakan fungsi print browser. Integrasi ESC/POS Bluetooth/USB/Wi-Fi akan menjadi tahap berikutnya setelah model printer ditentukan.
+## Akun awal
+Admin: `admin` / `admin123`
+Kasir: `kasir` / `kasir123`
 
-Untuk pengujian PWA, buka melalui HTTPS atau localhost; service worker tidak aktif pada file://.
-
-
-## v1.1
-Added 192x192 and 512x512 PWA icons and improved manifest metadata for Android installation.
-
-
-## v1.2
-PWA icons are placed in the repository root to simplify upload from mobile GitHub.
+## Catatan
+Data saat ini disimpan lokal di browser (localStorage), sehingga belum tersinkron antar-HP. Login lokal juga bukan sistem keamanan server. Untuk penggunaan multi-device diperlukan backend/database pada tahap berikutnya.
