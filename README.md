@@ -23,3 +23,7 @@ Data saat ini disimpan lokal di browser (localStorage), sehingga belum tersinkro
 
 
 POSTKU v2.2: UI responsif diperbarui, chart mendukung 1 Hari, 7 Hari, 30 Hari, 3 Bulan, 1 Tahun, dan kredensial admin diperbarui.
+
+
+## POSTKU v3 Supabase
+This build connects authentication, products, orders, payments, settings, and product images to the POSTKU Supabase project. Do not add a service-role key to the frontend.
