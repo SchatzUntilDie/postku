@@ -16,7 +16,7 @@
     <div class="login-card">
       <div class="brand-mark">P</div>
       <div class="brand-title">POSTKU</div>
-      <div class="brand-subtitle">Point of Sale · Cloud</div>
+      <div class="brand-subtitle">Point of Sale</div>
       <div class="field"><label>Username</label><input id="loginUser" autocomplete="username" placeholder="Masukkan username"></div>
       <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="Masukkan password"></div>
       <button class="primary big" id="loginBtn">Masuk</button>
@@ -55,19 +55,31 @@
       </section>
 
       <section id="view-kasir" class="view hidden">
-        <div class="section-head"><div><span class="eyebrow">TRANSAKSI</span><h1>Kasir</h1></div><button class="ghost" id="clearCartBtn">Kosongkan</button></div>
+        <div class="cashier-hero">
+          <div><span class="eyebrow">POINT OF SALE</span><h1>Kasir</h1><p>Pilih produk, atur jumlah, lalu selesaikan pembayaran.</p></div>
+          <div class="cashier-quick"><span>Item</span><strong id="quickCartCount">0</strong></div>
+        </div>
         <div class="cashier-layout">
           <div class="product-area">
-            <div class="toolbar"><input id="productSearch" class="search" placeholder="🔎 Cari produk..."><div id="categoryBar" class="chips"></div></div>
+            <div class="product-toolbar">
+              <div class="search-box"><span>⌕</span><input id="productSearch" class="search" placeholder="Cari nama produk..."></div>
+              <button class="ghost mobile-cart-btn" id="mobileCartBtn">🛒 <span id="mobileCartCount">0</span></button>
+            </div>
+            <div id="categoryBar" class="chips category-chips"></div>
+            <div class="product-heading"><div><b>Daftar Produk</b><span id="productResultCount" class="muted"></span></div><span class="muted">Ketuk produk untuk menambah</span></div>
             <div id="productGrid" class="product-grid"></div>
           </div>
-          <aside class="cart-panel">
-            <div class="cart-head"><h2>Keranjang</h2><span id="cartCount">0 item</span></div>
-            <div class="field"><label>Nama pembeli</label><input id="buyerName" placeholder="Contoh: Budi"></div>
-            <div class="field"><label>No. meja / order <span class="muted">(opsional)</span></label><input id="tableNo" placeholder="Contoh: M-05"></div>
-            <div id="cartItems" class="cart-items"></div>
-            <div class="cart-total"><span>Total</span><strong id="cartTotal">Rp0</strong></div>
-            <div class="cart-actions"><button class="secondary" id="pendingBtn">⏸ Pending</button><button class="primary" id="checkoutBtn">Bayar</button></div>
+          <aside class="cart-panel" id="cartPanel">
+            <div class="cart-head"><div><span class="eyebrow">PESANAN</span><h2>Keranjang</h2></div><button class="ghost cart-clear" id="clearCartBtn">Kosongkan</button></div>
+            <div class="customer-fields">
+              <div class="field"><label>Nama pembeli</label><input id="buyerName" placeholder="Contoh: Budi"></div>
+              <div class="field"><label>Meja / nomor order <span class="muted">(opsional)</span></label><input id="tableNo" placeholder="Contoh: M-05"></div>
+            </div>
+            <div class="cart-items" id="cartItems"></div>
+            <div class="cart-footer">
+              <div class="cart-total"><div><span>Total pembayaran</span><small id="cartCount">0 item</small></div><strong id="cartTotal">Rp0</strong></div>
+              <div class="cart-actions"><button class="secondary" id="pendingBtn">⏸ Simpan Pending</button><button class="primary" id="checkoutBtn">Bayar →</button></div>
+            </div>
           </aside>
         </div>
       </section>
@@ -121,8 +133,6 @@
 
 <div id="modal" class="modal hidden"><div class="modal-card"><button class="modal-close" id="modalClose">×</button><div id="modalBody"></div></div></div>
 <div id="toast" class="toast"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="supabase.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

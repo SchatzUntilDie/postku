@@ -1,46 +1,26 @@
-# POSTKU v2
+# POSTKU v2.3 Stable Local
 
-PWA POS sederhana untuk HP.
+Versi baseline POSTKU tanpa Supabase/database cloud.
 
-## Fitur
-- Login username/password dan role Admin/Kasir
-- Produk dengan foto
-- Keranjang + nama pembeli + meja/order
-- Pending, lanjutkan, batalkan, void
-- Pembayaran Tunai, QRIS, Transfer, Debit
-- QRIS dan rekening toko di Pengaturan
-- Cetak struk thermal 58/80 mm melalui dialog print
-- Dashboard dan grafik penjualan
-- Laporan + export CSV
-- PWA/offline cache
+Data transaksi, produk, akun, pengaturan, dan keranjang disimpan di localStorage perangkat.
 
-## Akun awal
-Admin: `admin` / `admin123`
-Kasir: `kasir` / `kasir123`
+Fitur:
+- Login admin/kasir lokal
+- Kasir dan keranjang
+- Nama pembeli
+- Pembayaran tunai/QRIS/transfer
+- Kembalian
+- Pending
+- Riwayat transaksi
+- Laporan + chart 1 hari/7 hari/30 hari/3 bulan/1 tahun
+- Produk
+- Pengaturan toko
+- Cetak struk/order
+- PWA
 
-## Catatan
-Data saat ini disimpan lokal di browser (localStorage), sehingga belum tersinkron antar-HP. Login lokal juga bukan sistem keamanan server. Untuk penggunaan multi-device diperlukan backend/database pada tahap berikutnya.
+Akun awal:
+Admin: navyabites / Bakung2no47
+Kasir: kasir / kasir123
 
-
-POSTKU v2.2: UI responsif diperbarui, chart mendukung 1 Hari, 7 Hari, 30 Hari, 3 Bulan, 1 Tahun, dan kredensial admin diperbarui.
-
-
-## POSTKU v3 Supabase
-This build connects authentication, products, orders, payments, settings, and product images to the POSTKU Supabase project. Do not add a service-role key to the frontend.
-
-
-## POSTKU v4.1
-- Memperbaiki penyimpanan produk/varian: varian baru tidak lagi dikirim dengan `id:null`.
-- Varian memiliki nama, harga, stok, dan SKU opsional.
-- Form varian dibuat lebih nyaman di HP.
-- Pesan error penyimpanan dibuat lebih jelas.
-- Service worker cache dinaikkan versinya agar perubahan UI tidak tertahan cache lama.
-
-
-## POSTKU v5.0 Stabilization
-- Transaksi completed tetap menggunakan satu RPC/database transaction.
-- Pending sekarang diselesaikan pada order yang sama, tidak membuat order baru.
-- Produk di-soft-delete agar riwayat transaksi tetap aman.
-- Foto produk di-upload setelah UUID produk tersedia.
-- Realtime refresh dibuat debounce agar tidak memuat data berkali-kali saat satu perubahan memicu products + variants.
-- Kembalian tunai tampil dan dihitung langsung saat nominal uang diterima berubah.
+Catatan:
+File database/Supabase sengaja tidak disertakan dalam baseline ini agar aplikasi tidak bergantung pada koneksi cloud.

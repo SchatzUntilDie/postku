@@ -1,457 +1,217 @@
-const db = window.postkuSupabase;
-const PLACEHOLDER = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="460"><rect width="100%" height="100%" fill="#eef2f7"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#94a3b8" font-family="Arial" font-size="28">POSTKU</text></svg>'
-);
-let S = {
-  products: [], orders: [], cart: [],
-  settings: {shopName:"POSTKU",shopAddress:"",shopPhone:"",bankName:"",bankAccount:"",bankOwner:"",qris:"",paperSize:"58"},
-  buyerName:"", tableNo:"", pendingOrderId:null
+const KEY="postku_v2";
+const defaultProducts=[
+{id:1,name:"Nasi Goreng",price:15000,cat:"Makanan",img:"https://images.unsplash.com/photo-1603133872878-684f208fb84b?auto=format&fit=crop&w=700&q=80"},
+{id:2,name:"Ayam Geprek",price:17000,cat:"Makanan",img:"https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=700&q=80"},
+{id:3,name:"Mie Goreng",price:13000,cat:"Makanan",img:"https://images.unsplash.com/photo-1585032226651-759b368d7246?auto=format&fit=crop&w=700&q=80"},
+{id:4,name:"Es Teh",price:5000,cat:"Minuman",img:"https://images.unsplash.com/photo-1556679343-c7306c1976bc?auto=format&fit=crop&w=700&q=80"},
+{id:5,name:"Kopi Susu",price:10000,cat:"Minuman",img:"https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=80"},
+{id:6,name:"Jus Jeruk",price:9000,cat:"Minuman",img:"https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=700&q=80"}
+];
+const defaultState={
+users:[{id:1,username:"navyabites",password:"Bakung2no47",role:"admin"},{id:2,username:"kasir",password:"kasir123",role:"cashier"}],
+products:defaultProducts,orders:[],cart:[],settings:{shopName:"POSTKU",shopAddress:"",shopPhone:"",bankName:"",bankAccount:"",bankOwner:"",qris:"",paperSize:"58"}
 };
-let current = null, activeCat="Semua", orderFilter="all", chartResizeObservers=[];
-let realtimeChannel = null;
-
-const rupiah = n => new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n)||0);
-const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
-const placeholder = () => PLACEHOLDER;
-const toast = t => { const x=document.getElementById("toast"); if(!x)return; x.textContent=t; x.classList.add("show"); setTimeout(()=>x.classList.remove("show"),1800); };
-const isAdmin = () => current?.role==="admin";
-const todayKey = (d=new Date()) => {const x=new Date(d);const local=new Date(x.getTime()-x.getTimezoneOffset()*60000);return local.toISOString().slice(0,10)};
-
-function localSave(){
-  try { localStorage.setItem("postku_cart", JSON.stringify({cart:S.cart,buyerName:S.buyerName,tableNo:S.tableNo,pendingOrderId:S.pendingOrderId||null})); } catch {}
+let S=load(); let current=null; let activeCat="Semua"; let orderFilter="all";
+function load(){
+ try{
+  const saved=JSON.parse(localStorage.getItem(KEY)||"{}");
+  const state={...structuredClone(defaultState),...saved};
+  state.users=Array.isArray(saved.users)&&saved.users.length?structuredClone(saved.users):structuredClone(defaultState.users);
+  let admin=state.users.find(u=>u.role==="admin");
+  if(!admin){state.users.unshift({id:1,username:"navyabites",password:"Bakung2no47",role:"admin"})}
+  else {admin.username="navyabites";admin.password="Bakung2no47";admin.role="admin"}
+  state.products=Array.isArray(saved.products)?saved.products:structuredClone(defaultState.products);
+  state.orders=Array.isArray(saved.orders)?saved.orders:[];
+  state.cart=Array.isArray(saved.cart)?saved.cart:[];
+  state.settings={...structuredClone(defaultState.settings),...(saved.settings||{})};
+  return state;
+ }catch{return structuredClone(defaultState)}
 }
-function localLoad(){
-  try { const x=JSON.parse(localStorage.getItem("postku_cart")||"{}"); S.cart=Array.isArray(x.cart)?x.cart:[]; S.buyerName=x.buyerName||""; S.tableNo=x.tableNo||""; S.pendingOrderId=x.pendingOrderId||null; } catch {}
+function save(){localStorage.setItem(KEY,JSON.stringify(S))}
+function rupiah(n){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(n||0)}
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+function toast(t){let x=document.getElementById("toast");x.textContent=t;x.classList.add("show");setTimeout(()=>x.classList.remove("show"),1800)}
+function isAdmin(){return current?.role==="admin"}
+function login(){
+ const u=document.getElementById("loginUser").value.trim(),p=document.getElementById("loginPass").value;
+ const found=S.users.find(x=>x.username===u&&x.password===p);
+ if(!found){document.getElementById("loginError").textContent="Username atau password salah.";return}
+ current=found; document.getElementById("loginScreen").classList.add("hidden");document.getElementById("mainScreen").classList.remove("hidden");
+ document.getElementById("currentUser").textContent=`${found.username} · ${found.role==="admin"?"Admin":"Kasir"}`;
+ document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
+ go("dashboard");
 }
-function clearLocalCart(){S.cart=[];S.buyerName="";S.tableNo="";S.pendingOrderId=null;localSave();}
-
-async function loadSettings(){
-  const {data,error}=await db.from("store_settings").select("*").eq("id",1).maybeSingle();
-  if(error){console.warn(error);return;}
-  if(data) S.settings={...S.settings,shopName:data.store_name||"POSTKU",bankName:data.bank_name||"",bankOwner:data.bank_account_name||"",bankAccount:data.bank_account_number||"",qris:data.qris_image_url||""};
-}
-async function loadProducts(){
-  const {data,error}=await db.from("products").select("id,name,category,price,image_url,is_active,sku,stock,unit,product_variants(id,name,sku,price,stock,is_active)").eq("is_active",true).order("name").limit(500);
-  if(error){toast("Gagal memuat produk: "+error.message);console.error(error);return;}
-  S.products=(data||[]).map(p=>({...p,cat:p.category||"Lainnya",img:p.image_url||"",variants:(p.product_variants||[]).filter(v=>v.is_active).map(v=>({...v,price:v.price==null?Number(p.price):Number(v.price)}))}));
-}
-async function loadOrders(){
-  const {data,error}=await db.from("orders").select("id,order_number,customer_name,status,total,discount,notes,created_at,completed_at,cashier_id,order_items(id,product_id,variant_id,variant_name,product_name,quantity,unit_price,subtotal),payments(method,amount,status,reference,account_name,bank_name,paid_at)").order("created_at",{ascending:false}).limit(100);
-  if(error){toast("Gagal memuat transaksi");console.error(error);return;}
-  S.orders=(data||[]).map(o=>{
-    const pay=(o.payments||[])[0];
-    return {id:o.id,number:o.order_number,displayId:"ORD-"+String(o.order_number),date:o.created_at,buyer:o.customer_name||"Umum",
-      status:o.status==="completed"?"paid":o.status, total:Number(o.total)||0, discount:Number(o.discount)||0,
-      cashier:o.cashier_id===current?.id?(current.username||current.display_name||"Kasir"):"Kasir",
-      cashier_id:o.cashier_id, items:(o.order_items||[]).map(i=>({id:i.product_id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,name:i.product_name,price:Number(i.unit_price)||0,qty:i.quantity})),
-      method:pay?({cash:"Tunai",qris:"QRIS",transfer:"Transfer"}[pay.method]||pay.method):"-",
-      cash:pay?.method==="cash"?Number(pay.amount)||0:0, change:pay?.method==="cash"?Math.max(0,(Number(pay.amount)||0)-(Number(o.total)||0)):0, payment:pay};
-  });
-}
-async function refreshData(){ await Promise.all([loadSettings(),loadProducts(),loadOrders()]); }
-
-function setupRealtime(){
-  if(!current)return;
-  if(realtimeChannel){ try{ db.removeChannel(realtimeChannel); }catch{} realtimeChannel=null; }
-  let timer=null;
-  const scheduleRefresh=()=>{
-    clearTimeout(timer);
-    timer=setTimeout(async()=>{
-      try{
-        await Promise.all([loadProducts(),loadOrders()]);
-        const visible=(name)=>!document.getElementById("view-"+name)?.classList.contains("hidden");
-        if(visible("products"))renderProducts();
-        if(visible("kasir"))renderKasir();
-        if(visible("orders"))renderOrders();
-        if(visible("reports"))renderReports();
-        renderDashboard();
-      }catch(e){console.warn("Realtime refresh:",e)}
-    },180);
-  };
-  realtimeChannel=db.channel("postku-live-data")
-    .on("postgres_changes",{event:"*",schema:"public",table:"products"},scheduleRefresh)
-    .on("postgres_changes",{event:"*",schema:"public",table:"product_variants"},scheduleRefresh)
-    .on("postgres_changes",{event:"*",schema:"public",table:"orders"},scheduleRefresh)
-    .on("postgres_changes",{event:"*",schema:"public",table:"order_items"},scheduleRefresh)
-    .on("postgres_changes",{event:"*",schema:"public",table:"payments"},scheduleRefresh)
-    .subscribe((status)=>{ if(status==="CHANNEL_ERROR") console.warn("Realtime channel error"); });
-}
-async function login(){
-  const username=document.getElementById("loginUser").value.trim();
-  const password=document.getElementById("loginPass").value;
-  const btn=document.getElementById("loginBtn");
-  if(!username||!password){document.getElementById("loginError").textContent="Username dan password wajib diisi.";return;}
-  btn.disabled=true; document.getElementById("loginError").textContent="";
-  try{
-    const {data,error}=await fetch(`${window.POSTKU_SUPABASE_URL}/functions/v1/postku-login`,{
-      method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,password})
-    }).then(async r=>({data:await r.json(),error:r.ok?null:new Error((await Promise.resolve({}))).message})).catch(e=>({error:e}));
-    if(error || !data?.session){document.getElementById("loginError").textContent=data?.error||"Login gagal. Periksa koneksi.";return;}
-    const {error:setErr}=await db.auth.setSession(data.session);
-    if(setErr) throw setErr;
-    current={...data.profile,id:data.profile.id};
-    document.getElementById("loginScreen").classList.add("hidden");
-    document.getElementById("mainScreen").classList.remove("hidden");
-    document.getElementById("currentUser").textContent=`${current.username||current.display_name||"User"} · ${current.role==="admin"?"Admin":"Kasir"}`;
-    document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
-    localLoad(); await refreshData(); setupRealtime(); go("dashboard");
-  }catch(e){console.error(e);document.getElementById("loginError").textContent="Tidak dapat terhubung ke server."}
-  finally{btn.disabled=false}
-}
-async function restoreSession(){
-  const {data}=await db.auth.getSession();
-  if(!data.session)return false;
-  const {data:p,error}=await db.from("profiles").select("id,username,display_name,role").eq("id",data.session.user.id).single();
-  if(error||!p)return false;
-  current=p;
-  document.getElementById("loginScreen").classList.add("hidden");
-  document.getElementById("mainScreen").classList.remove("hidden");
-  document.getElementById("currentUser").textContent=`${p.username||p.display_name||"User"} · ${p.role==="admin"?"Admin":"Kasir"}`;
-  document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
-  localLoad(); await refreshData(); setupRealtime(); go("dashboard"); return true;
-}
-async function logout(){if(realtimeChannel){try{await db.removeChannel(realtimeChannel)}catch{} realtimeChannel=null;}await db.auth.signOut();current=null;clearLocalCart();document.getElementById("mainScreen").classList.add("hidden");document.getElementById("loginScreen").classList.remove("hidden");document.getElementById("loginPass").value="";}
-
+function logout(){current=null;document.getElementById("mainScreen").classList.add("hidden");document.getElementById("loginScreen").classList.remove("hidden");document.getElementById("loginPass").value=""}
 function go(name){
-  document.querySelectorAll(".view").forEach(v=>v.classList.add("hidden"));
-  document.getElementById("view-"+name)?.classList.remove("hidden");
-  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("active",n.dataset.nav===name));
-  const titles={dashboard:"Dashboard",kasir:"Kasir",orders:"Pesanan",products:"Produk",reports:"Laporan",settings:"Pengaturan"};
-  document.getElementById("pageTitle").textContent=titles[name]||"POSTKU";
-  if(name==="dashboard")renderDashboard();
-  if(name==="kasir")renderKasir();
-  if(name==="orders")renderOrders();
-  if(name==="products")renderProducts();
-  if(name==="reports")renderReports();
-  if(name==="settings")renderSettings();
+ document.querySelectorAll(".view").forEach(v=>v.classList.add("hidden"));document.getElementById("view-"+name).classList.remove("hidden");
+ document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("active",n.dataset.nav===name));
+ const titles={dashboard:"Dashboard",kasir:"Kasir",orders:"Pesanan",products:"Produk",reports:"Laporan",settings:"Pengaturan"};document.getElementById("pageTitle").textContent=titles[name];
+ if(name==="dashboard")renderDashboard(); if(name==="kasir")renderKasir(); if(name==="orders")renderOrders();if(name==="products")renderProducts();if(name==="reports")renderReports();if(name==="settings")renderSettings();
 }
-
-function completedOrders(){return S.orders.filter(o=>o.status==="paid");}
+function todayKey(d=new Date()){return d.toISOString().slice(0,10)}
 function renderDashboard(){
-  const today=todayKey(),done=completedOrders().filter(o=>o.date.slice(0,10)===today);
-  document.getElementById("statOmzet").textContent=rupiah(done.reduce((a,o)=>a+o.total,0));
-  document.getElementById("statTx").textContent=done.length;
-  document.getElementById("statPending").textContent=S.orders.filter(o=>o.status==="pending").length;
-  document.getElementById("statProducts").textContent=S.products.length;
-  const period=+(document.getElementById("salesPeriod")?.value||7);
-  drawChart(document.getElementById("salesChart"),period); watchChartResize(document.getElementById("salesChart"),period);
-  const counts={}; done.forEach(o=>o.items.forEach(i=>counts[i.name]=(counts[i.name]||0)+i.qty));
-  document.getElementById("topProducts").innerHTML=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([n,q])=>`<div class="rank-row"><span>${esc(n)}</span><b>${q}</b></div>`).join("")||'<div class="muted">Belum ada penjualan.</div>';
+ const today=todayKey(),done=S.orders.filter(o=>o.status==="paid"&&o.date.slice(0,10)===today);
+ document.getElementById("statOmzet").textContent=rupiah(done.reduce((a,o)=>a+o.total,0));
+ document.getElementById("statTx").textContent=done.length;
+ document.getElementById("statPending").textContent=S.orders.filter(o=>o.status==="pending").length;
+ document.getElementById("statProducts").textContent=S.products.length;
+ const period=+(document.getElementById("salesPeriod")?.value||7);
+ const salesCanvas=document.getElementById("salesChart");
+ salesCanvas.dataset.period=period;
+ drawChart(salesCanvas,period);
+ watchChartResize(salesCanvas,period);
+ const counts={};
+ done.forEach(o=>o.items.forEach(i=>counts[i.name]=(counts[i.name]||0)+i.qty));
+ document.getElementById("topProducts").innerHTML=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6)
+ .map((x,i)=>`<div class="rank-row"><span>${i+1}. ${esc(x[0])}</span><b>${x[1]} terjual</b></div>`).join("")
+ ||'<div class="muted">Belum ada penjualan.</div>';
 }
 function chartBuckets(period){
-  const now=new Date(), arr=[];
-  if(period===1){for(let i=23;i>=0;i--){const d=new Date(now);d.setMinutes(0,0,0);d.setHours(d.getHours()-i);arr.push({key:d.toISOString().slice(0,13),label:String(d.getHours()).padStart(2,"0")+":00",sum:0});}}
-  else if(period<=30){for(let i=period-1;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i);arr.push({key:d.toISOString().slice(0,10),label:d.toLocaleDateString("id-ID",{day:"2-digit",month:"short"}),sum:0});}}
-  else if(period===90){for(let i=12;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i*7);arr.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-W${Math.ceil(d.getDate()/7)}`,label:d.toLocaleDateString("id-ID",{day:"2-digit",month:"short"}),sum:0});}}
-  else {for(let i=11;i>=0;i--){const d=new Date(now);d.setDate(1);d.setMonth(d.getMonth()-i);arr.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`,label:d.toLocaleDateString("id-ID",{month:"short",year:"2-digit"}),sum:0});}}
-  return arr;
+ const now=new Date(), out=[];
+ if(period===1){
+  for(let i=23;i>=0;i--){const d=new Date(now);d.setHours(now.getHours()-i,0,0,0);out.push({key:d.toISOString().slice(0,13),label:d.getHours().toString().padStart(2,"0")+":00",value:0})}
+ }else if(period===7||period===30){
+  for(let i=period-1;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i);out.push({key:todayKey(d),label:period===7?d.toLocaleDateString("id-ID",{weekday:"short"}):d.getDate().toString(),value:0})}
+ }else if(period===90){
+  for(let i=12;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i*7);const start=new Date(d);start.setDate(start.getDate()-6);out.push({key:todayKey(start),label:start.toLocaleDateString("id-ID",{day:"numeric",month:"short"}),value:0})}
+ }else{
+  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);out.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`,label:d.toLocaleDateString("id-ID",{month:"short"}),value:0})}
+ }
+ return out;
 }
 function drawChart(canvas,period){
-  if(!canvas)return; const rect=canvas.parentElement.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
-  const w=Math.max(260,Math.floor(rect.width)),h=220; canvas.width=w*dpr;canvas.height=h*dpr;canvas.style.width="100%";canvas.style.height=h+"px";
-  const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
-  const buckets=chartBuckets(period), done=completedOrders();
-  done.forEach(o=>{const d=new Date(o.date);let key;
-    if(period===1)key=d.toISOString().slice(0,13);
-    else if(period<=30)key=d.toISOString().slice(0,10);
-    else if(period===90){const x=new Date(d);x.setDate(x.getDate()-x.getDay());key=`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-W${Math.ceil(x.getDate()/7)}`;}
-    else key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    const b=buckets.find(x=>x.key===key);if(b)b.sum+=o.total;
-  });
-  const max=Math.max(1,...buckets.map(x=>x.sum)), pad={l:46,r:12,t:12,b:34}, cw=w-pad.l-pad.r,ch=h-pad.t-pad.b;
-  ctx.strokeStyle="#e5eaf1";ctx.fillStyle="#64748b";ctx.font="11px system-ui";ctx.lineWidth=1;
-  for(let i=0;i<=4;i++){const y=pad.t+ch*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(rupiah(max*(1-i/4)).replace("Rp",""),4,y+4);}
-  ctx.strokeStyle="#2563eb";ctx.lineWidth=3;ctx.beginPath();
-  buckets.forEach((b,i)=>{const x=pad.l+(buckets.length===1?cw/2:cw*i/(buckets.length-1)),y=pad.t+ch-(b.sum/max)*ch;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});
-  ctx.stroke();ctx.fillStyle="#2563eb";
-  buckets.forEach((b,i)=>{const x=pad.l+(buckets.length===1?cw/2:cw*i/(buckets.length-1)),y=pad.t+ch-(b.sum/max)*ch;ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();if(i%Math.ceil(buckets.length/6)===0){ctx.fillStyle="#64748b";ctx.fillText(b.label,x-18,h-10);ctx.fillStyle="#2563eb";}});
+ if(!canvas)return;
+ const ctx=canvas.getContext("2d"),dpr=window.devicePixelRatio||1;
+ const rect=canvas.parentElement?.getBoundingClientRect()||canvas.getBoundingClientRect();
+ const w=Math.max(220,Math.floor(rect.width||canvas.clientWidth||300));
+ const h=Math.max(180,Math.floor(window.innerWidth<=520?200:220));
+ canvas.width=Math.floor(w*dpr);canvas.height=Math.floor(h*dpr);
+ canvas.style.width="100%";canvas.style.height=h+"px";
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+ const buckets=chartBuckets(period);
+ S.orders.filter(o=>o.status==="paid").forEach(o=>{
+  const d=new Date(o.date), dateKey=o.date.slice(0,10);
+  let key;
+  if(period===1) key=o.date.slice(0,13);
+  else if(period===7||period===30) key=dateKey;
+  else if(period===90){const base=new Date(d);base.setHours(0,0,0,0);const day=(base.getDay()+6)%7;base.setDate(base.getDate()-day);const start=new Date(base);start.setDate(start.getDate()-6);key=todayKey(start)}
+  else key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const b=buckets.find(x=>x.key===key);if(b)b.value+=o.total;
+ });
+ const vals=buckets.map(b=>b.value),max=Math.max(...vals,1);
+ const pad={l:42,r:12,t:18,b:30},cw=Math.max(1,w-pad.l-pad.r),ch=Math.max(1,h-pad.t-pad.b);
+ ctx.font="10px system-ui";ctx.lineWidth=1;ctx.strokeStyle="#e2e8f0";ctx.fillStyle="#64748b";
+ for(let j=0;j<4;j++){const y=pad.t+ch*j/3;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();if(j<3)ctx.fillText(rupiah(Math.round(max*(3-j)/3)),3,y+3)}
+ const points=vals.map((v,i)=>({x:pad.l+cw*(i/(vals.length-1||1)),y:pad.t+ch-(v/max)*ch}));
+ ctx.strokeStyle="#2563eb";ctx.lineWidth=3;ctx.lineJoin="round";ctx.lineCap="round";ctx.beginPath();
+ points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();
+ points.forEach((p,i)=>{ctx.fillStyle="#2563eb";ctx.beginPath();ctx.arc(p.x,p.y,3.2,0,Math.PI*2);ctx.fill()});
+ ctx.fillStyle="#64748b";ctx.font="10px system-ui";
+ const step=period===1?4:period===7?1:period===30?5:period===90?2:2;
+ buckets.forEach((b,i)=>{if(i%step===0||i===buckets.length-1){const p=points[i];let label=b.label;const tw=ctx.measureText(label).width;ctx.fillText(label,Math.max(0,Math.min(p.x-tw/2,w-tw)),h-8)}});
+ if(!vals.some(Boolean)){ctx.fillStyle="#94a3b8";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Belum ada penjualan pada periode ini",w/2,h/2);ctx.textAlign="left"}
 }
-function watchChartResize(canvas,period){if(!canvas||canvas._ro)return;const ro=new ResizeObserver(()=>requestAnimationFrame(()=>drawChart(canvas,+canvas.dataset.period||period)));ro.observe(canvas.parentElement);canvas._ro=ro;}
-
+function watchChartResize(canvas,period){
+ if(!canvas||canvas._postkuResizeObserved)return;
+ canvas._postkuResizeObserved=true;
+ if("ResizeObserver" in window){
+  const ro=new ResizeObserver(()=>requestAnimationFrame(()=>drawChart(canvas,+(canvas.dataset.period||period))));
+  ro.observe(canvas.parentElement||canvas);canvas._postkuResizeObserver=ro;
+ }
+}
 function renderKasir(){
-  const cats=["Semua",...new Set(S.products.map(p=>p.cat))];
-  document.getElementById("categoryBar").innerHTML=cats.map(c=>`<button class="chip ${activeCat===c?"active":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
-  const q=document.getElementById("productSearch").value.toLowerCase();
-  const list=S.products.filter(p=>(activeCat==="Semua"||p.cat===activeCat)&&p.name.toLowerCase().includes(q));
-  document.getElementById("productGrid").innerHTML=list.map(p=>`<button class="product-card" data-add="${p.id}"><img loading="lazy" class="product-photo" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="product-info"><div class="product-name">${esc(p.name)}</div><div class="product-price">${p.variants?.length?`${p.variants.length} varian`:rupiah(p.price)}</div></div></button>`).join("")||'<div class="panel muted">Produk tidak ditemukan.</div>';
-  document.getElementById("buyerName").value=S.buyerName||"";document.getElementById("tableNo").value=S.tableNo||"";renderCart();
+ const cats=["Semua",...new Set(S.products.map(p=>p.cat))];
+ document.getElementById("categoryBar").innerHTML=cats.map(c=>`<button class="chip ${activeCat===c?"active":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
+ const q=document.getElementById("productSearch").value.toLowerCase().trim();
+ const list=S.products.filter(p=>(activeCat==="Semua"||p.cat===activeCat)&&p.name.toLowerCase().includes(q));
+ document.getElementById("productResultCount").textContent=` · ${list.length} produk`;
+ document.getElementById("productGrid").innerHTML=list.map(p=>{
+   const inCart=S.cart.find(x=>x.id==p.id)?.qty||0;
+   return `<button class="product-card" data-add="${p.id}">
+     <div class="product-image-wrap"><img class="product-photo" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><span class="product-category">${esc(p.cat)}</span>${inCart?`<span class="product-qty">${inCart}</span>`:""}</div>
+     <div class="product-info"><div class="product-name">${esc(p.name)}</div><div class="product-bottom"><div class="product-price">${rupiah(p.price)}</div><span class="add-dot">+</span></div></div>
+   </button>`;
+ }).join("")||`<div class="empty-products"><div>⌕</div><b>Produk tidak ditemukan</b><span>Coba kata kunci atau kategori lain.</span></div>`;
+ document.getElementById("buyerName").value=S.buyerName||"";
+ document.getElementById("tableNo").value=S.tableNo||"";
+ renderCart();
 }
-function chooseVariant(productId){
-  const p=S.products.find(x=>String(x.id)===String(productId));if(!p)return;
-  if(!p.variants?.length){addToCart(productId,null);return}
-  openModal(`<h2>${esc(p.name)}</h2><p class="muted">Pilih rasa / varian</p><div class="variant-choices">${p.variants.map(v=>`<button class="variant-choice" data-variant="${v.id}"><span><b>${esc(v.name)}</b><small>Stok ${Number(v.stock)||0}</small></span><strong>${rupiah(v.price)}</strong></button>`).join("")}</div>`);
-  document.querySelectorAll("[data-variant]").forEach(b=>b.onclick=()=>{addToCart(p.id,b.dataset.variant);closeModal()});
-}
-function addToCart(id,variantId=null){
-  const p=S.products.find(x=>String(x.id)===String(id));if(!p)return;const v=variantId?p.variants.find(x=>String(x.id)===String(variantId)):null;
-  if(v&&v.stock<=0){toast("Varian sedang habis");return}
-  const key=variantId?`${id}:${variantId}`:`${id}:base`,i=S.cart.find(x=>x.key===key);
-  if(i){if(v&&i.qty>=v.stock){toast("Stok varian tidak cukup");return}i.qty++}
-  else S.cart.push({key,id:p.id,variant_id:v?.id||null,variant_name:v?.name||null,name:p.name,price:Number(v?.price??p.price),qty:1,maxStock:v?.stock??null});
-  localSave();renderCart();
-}
+
+function placeholder(){return "data:image/svg+xml;charset=UTF-8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="450"><rect width="100%" height="100%" fill="#e5e7eb"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#94a3b8" font-size="28">POSTKU</text></svg>`)}
+function addToCart(id){let p=S.products.find(x=>x.id==id),i=S.cart.find(x=>x.id==id);if(i)i.qty++;else S.cart.push({id:p.id,name:p.name,price:p.price,qty:1});save();renderCart()}
 function renderCart(){
-  document.getElementById("cartItems").innerHTML=S.cart.map(i=>`<div class="cart-row"><div class="grow"><b>${esc(i.name)}${i.variant_name?` — ${esc(i.variant_name)}`:""}</b><small>${rupiah(i.price)} × ${i.qty}</small></div><div class="qty"><button data-minus="${esc(i.key)}">−</button><b>${i.qty}</b><button data-plus="${esc(i.key)}">+</button></div></div>`).join("")||'<div class="empty muted">Keranjang kosong.</div>';
-  document.getElementById("cartCount").textContent=`${S.cart.reduce((a,i)=>a+i.qty,0)} item`;document.getElementById("cartTotal").textContent=rupiah(cartTotal());
+ const el=document.getElementById("cartItems");
+ const count=S.cart.reduce((a,x)=>a+x.qty,0);
+ document.getElementById("cartCount").textContent=`${count} item`;
+ document.getElementById("quickCartCount").textContent=count;
+ document.getElementById("mobileCartCount").textContent=count;
+ el.innerHTML=S.cart.map(i=>`<div class="cart-row"><div class="cart-row-main"><b>${esc(i.name)}</b><span class="muted">${rupiah(i.price)} / item</span><div class="qty"><button data-minus="${i.id}">−</button><span>${i.qty}</span><button data-plus="${i.id}">+</button></div></div><div class="cart-row-total"><b>${rupiah(i.price*i.qty)}</b></div></div>`).join("")||'<div class="cart-empty"><div>🛒</div><b>Keranjang masih kosong</b><span>Pilih produk di sebelah kiri untuk memulai pesanan.</span></div>';
+ document.getElementById("cartTotal").textContent=rupiah(cartTotal());
 }
-function cartTotal(){return S.cart.reduce((a,i)=>a+i.price*i.qty,0);}
-async function clearCart(){if(S.pendingOrderId){toast("Selesaikan atau batalkan pesanan pending terlebih dahulu");return}clearLocalCart();renderCart();}
+function clearCart(){S.cart=[];S.buyerName="";S.tableNo="";save();renderCart()}
+function cartTotal(){return S.cart.reduce((a,x)=>a+x.price*x.qty,0)}
 function openCheckout(){
-  if(!S.cart.length){toast("Keranjang masih kosong");return}
-  const total=cartTotal();
-  openModal(`<h2>Bayar</h2><p class="muted">${esc(S.buyerName||"Umum")} · Total <b>${rupiah(total)}</b></p><div class="pay-grid"><button class="secondary" data-pay="cash">💵 Tunai</button><button class="secondary" data-pay="qris">▣ QRIS</button><button class="secondary" data-pay="transfer">🏦 Transfer</button></div><div id="payFields"></div>`);
-  document.querySelectorAll("[data-pay]").forEach(b=>b.onclick=()=>selectPayment(b.dataset.pay,total));
+ if(!S.cart.length){toast("Keranjang masih kosong");return}
+ openModal(`<h2>Pembayaran</h2><div class="field"><label>Nama pembeli</label><input id="payBuyer" value="${esc(document.getElementById("buyerName").value)}"></div><div class="field"><label>Metode pembayaran</label><select id="payMethod"><option>Tunai</option><option>QRIS</option><option>Transfer</option><option>Debit</option></select></div><div class="field" id="cashField"><label>Uang diterima</label><input id="cashReceived" type="number" inputmode="numeric" placeholder="${cartTotal()}"></div><div class="panel"><b>Total ${rupiah(cartTotal())}</b><div id="changeText" class="muted" style="margin-top:6px"></div></div><button class="primary" style="width:100%" id="confirmPay">Selesaikan & Cetak</button>`);
+ const method=document.getElementById("payMethod");const cash=document.getElementById("cashReceived");const change=()=>{let c=+cash.value||0;document.getElementById("changeText").textContent=method.value==="Tunai"?`Kembalian: ${rupiah(Math.max(0,c-cartTotal()))}`:""};
+ method.onchange=()=>{document.getElementById("cashField").classList.toggle("hidden",method.value!=="Tunai");change()};cash.oninput=change;document.getElementById("confirmPay").onclick=()=>finishPayment(method.value,+cash.value||0);
 }
-function selectPayment(method,total){
-  const f=document.getElementById("payFields");
-  if(method==="cash")f.innerHTML=`<div class="field"><label>Uang diterima</label><input id="cashAmount" type="number" min="${total}" value="${total}" inputmode="numeric"><div class="payment-change"><span>Kembalian</span><b id="changeAmount">${rupiah(0)}</b></div></div><button class="primary" style="width:100%" id="confirmPay">Simpan & Cetak</button>`;
-  else if(method==="qris")f.innerHTML=`<div class="panel"><b>QRIS</b><img class="qris-preview" src="${esc(S.settings.qris||placeholder())}"><p class="muted">Pastikan pembayaran sudah diterima.</p></div><button class="primary" style="width:100%" id="confirmPay">Konfirmasi & Cetak</button>`;
-  else f.innerHTML=`<div class="panel"><b>Transfer</b><p>${esc(S.settings.bankName||"Bank belum diatur")}</p><p>${esc(S.settings.bankAccount||"No. rekening belum diatur")} · ${esc(S.settings.bankOwner||"")}</p></div><div class="field"><label>Referensi transfer (opsional)</label><input id="payRef"></div><button class="primary" style="width:100%" id="confirmPay">Konfirmasi & Cetak</button>`;
-  document.getElementById("confirmPay").onclick=()=>finishPayment(method,total);
-  const cashInput=document.getElementById("cashAmount");
-  if(cashInput){
-    const updateChange=()=>{const value=Number(cashInput.value)||0;document.getElementById("changeAmount").textContent=rupiah(Math.max(0,value-total));};
-    cashInput.addEventListener("input",updateChange); updateChange();
-  }
-}
-async function finishPayment(method,total){
-  const cash=method==="cash"?Number(document.getElementById("cashAmount").value):total;
-  if(method==="cash"&&cash<total){toast("Uang diterima kurang");return}
-  if(!current){toast("Sesi login habis, silakan login kembali");return}
-  const btn=document.getElementById("confirmPay"); if(btn){btn.disabled=true;btn.textContent="Menyimpan…"}
-  try{
-    let result, buyer=document.getElementById("payBuyer")?.value?.trim()||S.buyerName||"Umum";
-    if(S.pendingOrderId){
-      const {data,error}=await db.rpc("postku_complete_order",{
-        p_id:S.pendingOrderId,p_payment:{method,amount:cash,reference:method==="transfer"?(document.getElementById("payRef")?.value||null):null}
-      });
-      if(error)throw new Error(error.message||"Gagal menyelesaikan pending");
-      result=data;
-    }else{
-      const items=S.cart.map(i=>({product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price}));
-      const payment={method,amount:cash,reference:method==="transfer"?(document.getElementById("payRef")?.value||null):null};
-      const {data,error}=await db.rpc("postku_create_order",{
-        p_customer_name:buyer,p_status:"completed",p_total:total,p_items:items,p_payment:payment
-      });
-      if(error)throw new Error(error.message||"Gagal menyimpan transaksi");
-      result=data;
-    }
-    const local={id:result.id,number:result.order_number,displayId:"ORD-"+result.order_number,date:result.created_at,buyer,items:structuredClone(S.cart),total,method:({cash:"Tunai",qris:"QRIS",transfer:"Transfer"})[method],cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username||current.display_name||"Kasir"};
-    clearLocalCart();closeModal();await Promise.all([loadProducts(),loadOrders()]);go("orders");setTimeout(()=>printReceipt(local),250);toast("Transaksi berhasil");
-  }catch(e){console.error(e);toast("Gagal menyimpan transaksi: "+(e.message||"periksa koneksi/izin"));}
-  finally{if(btn){btn.disabled=false;btn.textContent="Konfirmasi & Cetak"}}
-}
-async function createPending(){
-  if(!S.cart.length){toast("Keranjang masih kosong");return}
-  if(!current){toast("Sesi login habis, silakan login kembali");return}
-  const btn=document.getElementById("pendingBtn");if(btn)btn.disabled=true;
-  try{
-    const items=S.cart.map(i=>({product_id:i.id,variant_id:i.variant_id||null,variant_name:i.variant_name||null,product_name:i.name,quantity:i.qty,unit_price:i.price}));
-    const {data,error}=await db.rpc("postku_create_order",{p_customer_name:S.buyerName||"Umum",p_status:"pending",p_total:cartTotal(),p_items:items,p_payment:null});
-    if(error)throw new Error(error.message||"Gagal membuat pending");
-    clearLocalCart();await refreshData();go("orders");toast("Pesanan disimpan sebagai pending");
-  }catch(e){console.error(e);toast("Gagal membuat pending: "+(e.message||"periksa koneksi/izin"));}
-  finally{if(btn)btn.disabled=false}
-}
-function renderOrders(){
-  const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);
-  document.getElementById("ordersList").innerHTML=arr.map(o=>`<div class="order-card"><div class="order-top"><div><b>${esc(o.displayId)}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}</div></div><span class="badge ${o.status}">${o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":"DIBATALKAN"}</span></div><div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div><div class="order-actions" style="margin-top:12px">${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button>${isAdmin()?`<button class="secondary" data-void="${o.id}">Void</button>`:""}`:""}</div></div>`).join("")||'<div class="panel muted">Belum ada pesanan.</div>';
-}
-async function resumeOrder(id){
-  const o=S.orders.find(x=>x.id===id);if(!o)return;
-  if(o.status!=="pending"){toast("Pesanan sudah tidak pending");return}
-  S.cart=structuredClone(o.items).map(i=>({...i,key:i.variant_id?`${i.id}:${i.variant_id}`:`${i.id}:base`,maxStock:null}));
-  S.buyerName=o.buyer;S.tableNo="";S.pendingOrderId=o.id;localSave();
-  go("kasir");toast("Pesanan pending siap dibayar");
-}
-async function cancelOrder(id){
-  const {error}=await db.rpc("postku_cancel_order",{p_id:id,p_reason:"Dibatalkan kasir"});
-  if(error){toast("Gagal membatalkan: "+error.message);return}
-  if(S.pendingOrderId===id)clearLocalCart();
-  await refreshData();renderOrders();toast("Pesanan dibatalkan");
-}
-async function voidOrder(id){
-  if(!isAdmin()){toast("Hanya Admin");return}
-  const {error}=await db.rpc("postku_cancel_order",{p_id:id,p_reason:"Void oleh admin"});
-  if(error){toast("Gagal void: "+error.message);return} await refreshData();renderOrders();toast("Transaksi di-void dan stok dikembalikan");
-}
-function renderProducts(){
-  document.getElementById("productsList").innerHTML=S.products.map(p=>{const vars=p.variants||[];return `<div class="admin-product"><img loading="lazy" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${vars.length?vars.map(v=>`${esc(v.name)} (${v.stock})`).join(" · "):rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`}).join("")||'<div class="panel muted">Belum ada produk.</div>';
-}
-async function prepareProductImage(file){
-  if(!file)return null;
-  if(!/^image\/(jpeg|png|webp)$/i.test(file.type))throw new Error("Format foto harus JPG, PNG, atau WebP.");
-  if(file.size<=900*1024)return file;
-  const bmp=await createImageBitmap(file);
-  const max=1200,scale=Math.min(1,max/Math.max(bmp.width,bmp.height));
-  const c=document.createElement("canvas");c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));
-  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);bmp.close?.();
-  const blob=await new Promise((resolve,reject)=>c.toBlob(resolve,"image/jpeg",0.82));
-  if(!blob)throw new Error("Foto tidak dapat diproses di perangkat ini.");
-  return new File([blob],"product.jpg",{type:"image/jpeg",lastModified:Date.now()});
-}
-async function uploadProductImage(file,productId){
-  const prepared=await prepareProductImage(file);
-  const ext=(prepared.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";
-  const path=`${productId}/${crypto.randomUUID()}.${ext}`;
-  const {error}=await db.storage.from("product-images").upload(path,prepared,{upsert:false,contentType:prepared.type,cacheControl:"31536000"});
-  if(error)throw new Error("Upload foto: "+error.message);
-  return db.storage.from("product-images").getPublicUrl(path).data.publicUrl;
-}
-function productModal(id=null){
-  const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:0,cat:"Makanan",img:"",stock:0,sku:"",variants:[]};
-  let variants=(p.variants||[]).map(v=>({id:v.id,name:v.name,price:v.price,stock:v.stock,sku:v.sku||""}));
-  let removeImage=false;
-  const rows=()=>variants.map((v,i)=>`<div class="variant-edit-row" data-vrow="${i}">
-    <div class="variant-field"><label>Nama / rasa</label><input class="v-name" value="${esc(v.name)}" placeholder="Contoh: Matcha"></div>
-    <div class="variant-field"><label>Harga</label><input class="v-price" type="number" min="0" value="${v.price??p.price??0}" inputmode="numeric" placeholder="10000"></div>
-    <div class="variant-field"><label>Stok</label><input class="v-stock" type="number" min="0" value="${v.stock??0}" inputmode="numeric" placeholder="10"></div>
-    <div class="variant-field"><label>SKU <span class="muted">opsional</span></label><input class="v-sku" value="${esc(v.sku||"")}" placeholder="RSL-MT"></div>
-    <button type="button" class="danger-btn" data-remove-v="${i}" aria-label="Hapus varian">×</button>
-  </div>`).join("");
-  openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2>
-    <div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}" placeholder="Contoh: Risol"></div>
-    <div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}" placeholder="Makanan"></div>
-    <div class="field"><label>Harga dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pPrice" type="number" min="0" value="${p.price||0}" inputmode="numeric"></div>
-    <div class="field"><label>Stok dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pStock" type="number" min="0" value="${p.stock||0}" inputmode="numeric"></div>
-    <div class="field"><label>SKU dasar <span class="muted">(opsional)</span></label><input id="pSku" value="${esc(p.sku||"")}" placeholder="RSL"></div>
-    <div class="field"><label>Foto produk <span class="muted">JPG/PNG/WebP · otomatis diperkecil bila perlu</span></label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><div class="photo-actions"><button type="button" class="secondary" id="replacePhoto">Ganti Foto</button>${p.img?'<button type="button" class="secondary" id="removePhoto">Hapus Foto</button>':''}</div><img id="pPrev" class="product-modal-preview" src="${esc(p.img||placeholder())}" alt="Preview produk"></div>
-    <div class="field variant-section"><div class="variant-head"><div><label>Varian / Rasa</label><small class="muted">Satu produk dapat memiliki banyak varian dengan stok berbeda.</small></div><button type="button" class="secondary" id="addVariantRow">+ Tambah Varian</button></div>
-      <div id="variantRows">${rows()}</div><small class="muted">Contoh: Risol → Matcha stok 10, Coklat stok 10.</small>
-    </div>
-    <button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
-  const redraw=()=>document.getElementById("variantRows").innerHTML=rows();
-  const bind=()=>document.querySelectorAll("[data-remove-v]").forEach(b=>b.onclick=()=>{variants.splice(Number(b.dataset.removeV),1);redraw();bind()});
-  document.getElementById("addVariantRow").onclick=()=>{variants.push({id:null,name:"",price:Number(p.price)||0,stock:0,sku:""});redraw();bind();setTimeout(()=>document.querySelectorAll('.v-name')[document.querySelectorAll('.v-name').length-1]?.focus(),0)};
-  bind();
-  document.getElementById("replacePhoto")?.addEventListener("click",()=>document.getElementById("pFile").click());
-  document.getElementById("removePhoto")?.addEventListener("click",()=>{removeImage=true;document.getElementById("pFile").value="";document.getElementById("pPrev").src=placeholder();});
-  document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(!f)return;if(!/^image\/(jpeg|png|webp)$/i.test(f.type)){toast("Gunakan JPG, PNG, atau WebP");e.target.value="";return}removeImage=false;document.getElementById("pPrev").src=URL.createObjectURL(f)};
-  document.getElementById("saveProduct").onclick=async()=>{
-    const name=document.getElementById("pName").value.trim(),price=Number(document.getElementById("pPrice").value)||0,cat=document.getElementById("pCat").value.trim()||"Lainnya",stock=Number(document.getElementById("pStock").value)||0,sku=document.getElementById("pSku").value.trim()||null,file=document.getElementById("pFile").files[0];
-    const rs=[...document.querySelectorAll(".variant-edit-row")].map(row=>{const i=Number(row.dataset.vrow),old=variants[i]||{};const item={name:row.querySelector(".v-name").value.trim(),price:Number(row.querySelector(".v-price").value)||0,stock:Number(row.querySelector(".v-stock").value)||0,sku:row.querySelector(".v-sku").value.trim()||null};if(old.id)item.id=old.id;return item});
-    if(!name){toast("Nama produk wajib diisi");return}
-    if(rs.some(v=>!v.name)){toast("Nama semua varian wajib diisi");return}
-    if(new Set(rs.map(v=>v.name.toLowerCase())).size!==rs.length){toast("Nama varian tidak boleh sama");return}
-    const btn=document.getElementById("saveProduct");btn.disabled=true;btn.textContent="Menyimpan…";
-    try{
-      const baseImage=removeImage?null:(p.img||null);
-      const {data:productId,error:saveError}=await db.rpc("postku_save_product",{
-        p_id:id||null,p_name:name,p_price:price,p_category:cat,p_stock:stock,p_sku:sku,
-        p_image_url:baseImage,p_variants:rs
-      });
-      if(saveError)throw new Error(saveError.message||"Gagal menyimpan produk");
-      if(!productId)throw new Error("Database tidak mengembalikan ID produk");
-      if(file){
-        const image_url=await uploadProductImage(file,productId);
-        const {error:imageError}=await db.rpc("postku_set_product_image",{p_id:productId,p_image_url:image_url});
-        if(imageError)throw new Error(imageError.message||"Gagal menyimpan foto produk");
-      }
-      closeModal();
-      await loadProducts();
-      renderProducts();
-      renderKasir();
-      toast("Produk berhasil disimpan");
-    }catch(e){console.error(e);toast("Gagal menyimpan: "+(e.message||"periksa izin database"))}finally{btn.disabled=false;btn.textContent="Simpan Produk"}
-  };
+function finishPayment(method,cash){
+ const total=cartTotal();if(method==="Tunai"&&cash<total){toast("Uang diterima kurang");return}
+ const now=new Date();const order={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("payBuyer").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total,method,cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username};
+ S.orders.unshift(order);clearCart();closeModal();save();go("orders");setTimeout(()=>printReceipt(order,"receipt"),200);toast("Transaksi berhasil");}
+function createPending(){if(!S.cart.length){toast("Keranjang masih kosong");return}const now=new Date();const o={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("buyerName").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"pending",cashier:current.username};S.orders.unshift(o);clearCart();save();go("orders");toast("Pesanan disimpan sebagai pending")}
+function renderOrders(){const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);document.getElementById("ordersList").innerHTML=arr.map(o=>`<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":"DIBATALKAN"}</span></div><div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div><div class="order-actions" style="margin-top:12px">${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Void</button>`:""}</div></div>`).join("")||'<div class="panel muted">Belum ada pesanan.</div>'}
+function resumeOrder(id){let o=S.orders.find(x=>x.id===id);S.cart=structuredClone(o.items);S.buyerName=o.buyer;S.tableNo=o.table;S.orders=S.orders.filter(x=>x.id!==id);save();go("kasir");toast("Pesanan dikembalikan ke keranjang")}
+function cancelOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;o.status="cancelled";save();renderOrders();toast("Pesanan dibatalkan")}
+function voidOrder(id){if(!isAdmin()){toast("Hanya Admin yang dapat void");return}let o=S.orders.find(x=>x.id===id);if(!o)return;o.status="cancelled";o.voidedBy=current.username;save();renderOrders();toast("Transaksi di-void")}
+function renderProducts(){document.getElementById("productsList").innerHTML=S.products.map(p=>`<div class="admin-product"><img src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`).join("")}
+function productModal(id=null){let p=id?S.products.find(x=>x.id==id):{name:"",price:"",cat:"Makanan",img:""};openModal(`<h2>${id?"Edit Produk":"Tambah Produk"}</h2><div class="field"><label>Nama produk</label><input id="pName" value="${esc(p.name)}"></div><div class="field"><label>Harga</label><input id="pPrice" type="number" value="${p.price}"></div><div class="field"><label>Kategori</label><input id="pCat" value="${esc(p.cat)}"></div><div class="field"><label>Foto produk</label><input id="pFile" type="file" accept="image/*"><img id="pPrev" class="qris-preview" src="${esc(p.img||placeholder())}"></div><button class="primary" style="width:100%" id="saveProduct">Simpan Produk</button>`);
+ let img=p.img||"";document.getElementById("pFile").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{img=r.result;document.getElementById("pPrev").src=img};r.readAsDataURL(f)};
+ document.getElementById("saveProduct").onclick=()=>{let name=document.getElementById("pName").value.trim(),price=+document.getElementById("pPrice").value,cat=document.getElementById("pCat").value.trim()||"Lainnya";if(!name||!price){toast("Lengkapi data produk");return}if(id){Object.assign(p,{name,price,cat,img})}else{S.products.push({id:Date.now(),name,price,cat,img})}save();closeModal();renderProducts();toast("Produk tersimpan")};
 }
 function renderReports(){
-  const done=completedOrders(),sum=done.reduce((a,o)=>a+o.total,0);
-  document.getElementById("reportOmzet").textContent=rupiah(sum);document.getElementById("reportTx").textContent=done.length;document.getElementById("reportAvg").textContent=rupiah(done.length?sum/done.length:0);
-  document.getElementById("reportDigital").textContent=rupiah(done.filter(o=>["QRIS","Transfer"].includes(o.method)).reduce((a,o)=>a+o.total,0));
-  const period=+(document.getElementById("reportPeriod")?.value||30);drawChart(document.getElementById("reportChart"),period);watchChartResize(document.getElementById("reportChart"),period);
-  const pay={};done.forEach(o=>pay[o.method]=(pay[o.method]||0)+o.total);document.getElementById("paymentBreakdown").innerHTML=Object.entries(pay).map(([k,v])=>`<div class="rank-row"><span>${esc(k)}</span><b>${rupiah(v)}</b></div>`).join("")||'<div class="muted">Belum ada transaksi.</div>';
+ let done=S.orders.filter(o=>o.status==="paid"),sum=done.reduce((a,o)=>a+o.total,0);
+ document.getElementById("reportOmzet").textContent=rupiah(sum);
+ document.getElementById("reportTx").textContent=done.length;
+ document.getElementById("reportAvg").textContent=rupiah(done.length?sum/done.length:0);
+ let digital=done.filter(o=>["QRIS","Transfer"].includes(o.method)).reduce((a,o)=>a+o.total,0);
+ document.getElementById("reportDigital").textContent=rupiah(digital);
+ const period=+(document.getElementById("reportPeriod")?.value||30);
+ const chart=document.getElementById("reportChart");chart.dataset.period=period;
+ drawChart(chart,period);watchChartResize(chart,period);
+ let pay={};done.forEach(o=>pay[o.method]=(pay[o.method]||0)+o.total);
+ document.getElementById("paymentBreakdown").innerHTML=Object.entries(pay)
+ .map(x=>`<div class="rank-row"><span>${esc(x[0])}</span><b>${rupiah(x[1])}</b></div>`).join("")
+ ||'<div class="muted">Belum ada transaksi.</div>';
 }
-async function loadCashiers(){
-  const box=document.getElementById("usersList");
-  if(!box||!isAdmin())return;
-  box.innerHTML='<div class="muted">Memuat akun kasir…</div>';
-  try{
-    const {data:session}=await db.auth.getSession();
-    const token=session?.session?.access_token;
-    if(!token){box.innerHTML='<div class="muted">Sesi login tidak ditemukan.</div>';return}
-    const {data,error}=await db.functions.invoke("postku-admin-users",{method:"GET"});
-    if(error)throw new Error(error.message||"Gagal memuat akun kasir");
-    const users=data?.users||[];
-    box.innerHTML=users.map(u=>`<div class="user-row"><div><b>${esc(u.display_name||u.username)}</b><small class="muted">@${esc(u.username)}</small></div><span class="badge paid">KASIR</span></div>`).join("")||'<div class="muted">Belum ada akun kasir.</div>';
-  }catch(e){console.error(e);box.innerHTML='<div class="muted">Gagal memuat akun kasir.</div>'}
-}
-async function createCashier(){
-  if(!isAdmin()){toast("Hanya Admin");return}
-  openModal(`<h2>Tambah Kasir</h2><p class="muted">Buat akun login khusus kasir. Email internal dibuat otomatis oleh POSTKU.</p><div class="field"><label>Username</label><input id="cashierUsername" autocomplete="off" placeholder="Contoh: kasir01"></div><div class="field"><label>Nama kasir</label><input id="cashierName" autocomplete="off" placeholder="Contoh: Andi"></div><div class="field"><label>Password</label><input id="cashierPassword" type="password" autocomplete="new-password" placeholder="Minimal 6 karakter"></div><button class="primary" style="width:100%" id="saveCashier">Buat Akun Kasir</button>`);
-  document.getElementById("saveCashier").onclick=async()=>{
-    const btn=document.getElementById("saveCashier"),username=document.getElementById("cashierUsername").value.trim(),display_name=document.getElementById("cashierName").value.trim(),password=document.getElementById("cashierPassword").value;
-    if(!username||!password){toast("Username dan password wajib diisi");return}
-    btn.disabled=true;btn.textContent="Membuat…";
-    try{
-      const {data,error}=await db.functions.invoke("postku-admin-users",{method:"POST",body:{username,display_name:display_name||username,password}});
-      if(error)throw new Error(error.message||"Gagal membuat akun");
-      if(data?.error)throw new Error(data.error);
-      closeModal();await loadCashiers();toast(`Akun kasir @${username} berhasil dibuat`);
-    }catch(e){console.error(e);toast(e.message||"Gagal membuat akun kasir")}finally{btn.disabled=false;btn.textContent="Buat Akun Kasir"}
-  };
-}
-function renderSettings(){
-  const x=S.settings;for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"]){const el=document.getElementById(id);if(el)el.value=x[id]||""}
-  const q=document.getElementById("qrisPreview");if(x.qris){q.src=x.qris;q.classList.remove("hidden")}else q.classList.add("hidden");
-  if(isAdmin())loadCashiers();
-}
-async function saveSettings(){
-  const payload={store_name:document.getElementById("shopName").value.trim()||"POSTKU",bank_name:document.getElementById("bankName").value.trim()||null,bank_account_name:document.getElementById("bankOwner").value.trim()||null,bank_account_number:document.getElementById("bankAccount").value.trim()||null,qris_image_url:S.settings.qris||null};
-  const {error}=await db.from("store_settings").upsert({id:1,...payload});if(error){toast("Gagal menyimpan pengaturan");return}await loadSettings();toast("Pengaturan tersimpan");
-}
+function renderSettings(){let x=S.settings;for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])document.getElementById(id).value=x[id]||"";if(x.qris){document.getElementById("qrisPreview").src=x.qris;document.getElementById("qrisPreview").classList.remove("hidden")}document.getElementById("usersList").innerHTML=isAdmin()?S.users.map(u=>`<div class="rank-row"><span>${esc(u.username)} <small class="muted">(${u.role})</small></span><b>${u.id===current.id?"AKUN SAYA":`<button class="secondary" data-userdel="${u.id}">Hapus</button>`}</b></div>`).join(""):""}
+function saveSettings(){for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])S.settings[id]=document.getElementById(id).value;save();toast("Pengaturan disimpan")}
 function openModal(html){document.getElementById("modalBody").innerHTML=html;document.getElementById("modal").classList.remove("hidden")}
 function closeModal(){document.getElementById("modal").classList.add("hidden")}
-function printReceipt(o){
-  const w=window.open("","_blank");if(!w){toast("Izinkan pop-up untuk mencetak");return}
-  const size=S.settings.paperSize==="80"?"80mm":"58mm";
-  const items=o.items.map(i=>`<tr><td>${i.qty}× ${esc(i.name)}</td><td>${rupiah(i.price*i.qty)}</td></tr>`).join("");
-  w.document.write(`<html><head><title>${esc(o.displayId||o.id)}</title><style>@page{size:${size} auto;margin:0}body{font-family:monospace;width:${size};margin:0;padding:4mm;font-size:12px}h2{text-align:center;margin:0 0 4px}p{margin:3px 0}table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top}td:last-child{text-align:right}.line{border-top:1px dashed #000;margin:7px 0}.center{text-align:center}</style></head><body><h2>${esc(S.settings.shopName||"POSTKU")}</h2><p class="center">${esc(S.settings.shopAddress||"")}</p><div class="line"></div><p>Order: ${esc(o.displayId||o.id)}</p><p>Pembeli: ${esc(o.buyer)}</p><p>Kasir: ${esc(o.cashier||"")}</p><p>${new Date(o.date).toLocaleString("id-ID")}</p><div class="line"></div><table>${items}</table><div class="line"></div><table><tr><td><b>TOTAL</b></td><td><b>${rupiah(o.total)}</b></td></tr>${o.method!=="-"?`<tr><td>${esc(o.method)}</td><td>${rupiah(o.cash)}</td></tr><tr><td>Kembali</td><td>${rupiah(o.change)}</td></tr>`:""}</table><div class="line"></div><p class="center">Terima kasih</p><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);
-  w.document.close();
-}
-function exportCSV(){
-  const rows=[["ID","Tanggal","Pembeli","Kasir","Status","Metode","Total"],...S.orders.map(o=>[o.displayId,o.date,o.buyer,o.cashier,o.status,o.method,o.total])];
-  const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n"),a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="postku-laporan.csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
-}
-function addUser(){createCashier()}
-function testPrint(){const o={displayId:"TEST-001",date:new Date().toISOString(),buyer:"Test",cashier:current?.username||"Kasir",items:[{name:"Contoh Produk",price:10000,qty:1}],total:10000,method:"Tunai",cash:10000,change:0};printReceipt(o)}
-
-document.addEventListener("click",async e=>{
-  const nav=e.target.closest("[data-nav]");if(nav)return go(nav.dataset.nav);
-  const add=e.target.closest("[data-add]");if(add)return chooseVariant(add.dataset.add);
-  const chip=e.target.closest("[data-cat]");if(chip){activeCat=chip.dataset.cat;return renderKasir();}
-  const plus=e.target.closest("[data-plus]"),minus=e.target.closest("[data-minus]");
-  if(plus||minus){const key=String(plus?.dataset.plus||minus?.dataset.minus),i=S.cart.find(x=>x.key===key);if(i){if(plus){if(i.maxStock!=null&&i.qty>=i.maxStock){toast("Stok varian tidak cukup");return}i.qty++;}else i.qty--;if(i.qty<=0)S.cart=S.cart.filter(x=>x.key!==key);localSave();renderCart();}return;}
-  const tab=e.target.closest("[data-status]");if(tab){orderFilter=tab.dataset.status;document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===tab));renderOrders();return;}
-  const resume=e.target.closest("[data-resume]");if(resume)return resumeOrder(resume.dataset.resume);
-  const cancel=e.target.closest("[data-cancel]");if(cancel&&confirm("Batalkan pesanan ini?"))return cancelOrder(cancel.dataset.cancel);
-  const rep=e.target.closest("[data-reprint]");if(rep){const o=S.orders.find(x=>x.id===rep.dataset.reprint);if(o)printReceipt(o);return;}
-  const vo=e.target.closest("[data-void]");if(vo&&confirm("Void transaksi ini?"))return voidOrder(vo.dataset.void);
-  const edit=e.target.closest("[data-edit]");if(edit)return productModal(edit.dataset.edit);
-  const del=e.target.closest("[data-delete]");if(del&&confirm("Hapus produk?")){const {error}=await db.rpc("postku_delete_product",{p_id:del.dataset.delete});if(error)toast("Gagal menghapus produk: "+error.message);else{await refreshData();renderProducts();toast("Produk dihapus");}return;}
+function printReceipt(o,type="receipt"){const w=window.open("","_blank");if(!w){toast("Izinkan pop-up untuk mencetak");return}let size=S.settings.paperSize==="80"?"80mm":"58mm";let items=o.items.map(i=>`<tr><td>${i.qty}× ${esc(i.name)}</td><td>${rupiah(i.price*i.qty)}</td></tr>`).join("");w.document.write(`<html><head><title>${o.id}</title><style>@page{size:${size} auto;margin:0}body{font-family:monospace;width:${size};margin:0;padding:4mm;font-size:12px}h2{text-align:center;margin:0 0 4px}p{margin:3px 0}table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top}td:last-child{text-align:right}.line{border-top:1px dashed #000;margin:7px 0}.center{text-align:center}</style></head><body><h2>${esc(S.settings.shopName||"POSTKU")}</h2><p class="center">${esc(S.settings.shopAddress||"")}</p><div class="line"></div><p>Order: ${o.id}</p><p>Pembeli: ${esc(o.buyer)}</p><p>Kasir: ${esc(o.cashier)}</p><p>${new Date(o.date).toLocaleString("id-ID")}</p><div class="line"></div><table>${items}</table><div class="line"></div><table><tr><td><b>TOTAL</b></td><td><b>${rupiah(o.total)}</b></td></tr>${o.method!=="-"?`<tr><td>${esc(o.method)}</td><td>${rupiah(o.cash)}</td></tr><tr><td>Kembali</td><td>${rupiah(o.change)}</td></tr>`:""}</table><div class="line"></div><p class="center">Terima kasih</p><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);w.document.close()}
+function exportCSV(){let rows=[["ID","Tanggal","Pembeli","Kasir","Status","Metode","Total"],...S.orders.map(o=>[o.id,o.date,o.buyer,o.cashier,o.status,o.method,o.total])];let csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="postku-laporan.csv";a.click();URL.revokeObjectURL(a.href)}
+function addUser(){openModal(`<h2>Tambah Kasir</h2><div class="field"><label>Username</label><input id="nu"></div><div class="field"><label>Password</label><input id="np" type="password"></div><button class="primary" style="width:100%" id="saveUser">Simpan</button>`);document.getElementById("saveUser").onclick=()=>{let u=document.getElementById("nu").value.trim(),p=document.getElementById("np").value;if(!u||!p||S.users.some(x=>x.username===u)){toast("Username kosong atau sudah dipakai");return}S.users.push({id:Date.now(),username:u,password:p,role:"cashier"});save();closeModal();renderSettings();toast("Kasir ditambahkan")}}
+function testPrint(){const o={id:"TEST-001",date:new Date().toISOString(),buyer:"Test",cashier:current.username,items:[{name:"Contoh Produk",price:10000,qty:1}],total:10000,method:"Tunai",cash:10000,change:0};printReceipt(o)}
+document.addEventListener("click",e=>{
+ const nav=e.target.closest("[data-nav]");if(nav)go(nav.dataset.nav);
+ const add=e.target.closest("[data-add]");if(add)addToCart(add.dataset.add);
+ const chip=e.target.closest("[data-cat]");if(chip){activeCat=chip.dataset.cat;renderKasir()}
+ const plus=e.target.closest("[data-plus]"),minus=e.target.closest("[data-minus]");if(plus||minus){let id=+(plus?.dataset.plus||minus?.dataset.minus),i=S.cart.find(x=>x.id===id);if(i){if(plus)i.qty++;else i.qty--;if(i.qty<=0)S.cart=S.cart.filter(x=>x.id!==id);save();renderCart()}}
+ const tab=e.target.closest("[data-status]");if(tab){orderFilter=tab.dataset.status;document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===tab));renderOrders()}
+ const resume=e.target.closest("[data-resume]");if(resume)resumeOrder(resume.dataset.resume);
+ const cancel=e.target.closest("[data-cancel]");if(cancel&&confirm("Batalkan pesanan ini?"))cancelOrder(cancel.dataset.cancel);
+ const rep=e.target.closest("[data-reprint]");if(rep)printReceipt(S.orders.find(o=>o.id===rep.dataset.reprint));
+ const vo=e.target.closest("[data-void]");if(vo&&confirm("Void transaksi ini?"))voidOrder(vo.dataset.void);
+ const edit=e.target.closest("[data-edit]");if(edit)productModal(edit.dataset.edit);
+ const del=e.target.closest("[data-delete]");if(del&&confirm("Hapus produk?")){S.products=S.products.filter(p=>p.id!=del.dataset.delete);save();renderProducts();toast("Produk dihapus")}
+ const ud=e.target.closest("[data-userdel]");if(ud&&confirm("Hapus kasir ini?")){S.users=S.users.filter(u=>u.id!=ud.dataset.userdel);save();renderSettings();toast("Kasir dihapus")}
 });
-document.getElementById("loginBtn").onclick=login;
-document.getElementById("loginPass").onkeydown=e=>{if(e.key==="Enter")login()};
-document.getElementById("logoutBtn").onclick=logout;
+document.getElementById("loginBtn").onclick=login;document.getElementById("loginPass").onkeydown=e=>{if(e.key==="Enter")login};document.getElementById("logoutBtn").onclick=logout;
 document.getElementById("salesPeriod").onchange=()=>{const c=document.getElementById("salesChart");c.dataset.period=document.getElementById("salesPeriod").value;drawChart(c,+c.dataset.period)};
 document.getElementById("reportPeriod").onchange=()=>renderReports();
-document.getElementById("productSearch").oninput=renderKasir;
-document.getElementById("buyerName").oninput=e=>{S.buyerName=e.target.value;localSave()};
-document.getElementById("tableNo").oninput=e=>{S.tableNo=e.target.value;localSave()};
-document.getElementById("clearCartBtn").onclick=()=>{if(confirm("Kosongkan keranjang?"))clearCart()};
-document.getElementById("checkoutBtn").onclick=openCheckout;
-document.getElementById("pendingBtn").onclick=createPending;
-document.getElementById("addProductBtn").onclick=()=>productModal();
-document.getElementById("exportBtn").onclick=exportCSV;
-document.getElementById("saveSettingsBtn").onclick=saveSettings;
-document.getElementById("testPrintBtn").onclick=testPrint;
-document.getElementById("addUserBtn").onclick=addUser;
-document.getElementById("qrisInput").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{S.settings.qris=r.result;document.getElementById("qrisPreview").src=r.result;document.getElementById("qrisPreview").classList.remove("hidden")};r.readAsDataURL(f)};
-document.getElementById("modalClose").onclick=closeModal;
-document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeModal()};
-
-window.addEventListener("online",()=>toast("Koneksi kembali"));
-window.addEventListener("offline",()=>toast("Offline: data lokal keranjang tetap aman"));
-if("serviceWorker" in navigator)window.addEventListener("load",async()=>{try{await navigator.serviceWorker.register("sw.js")}catch(e){}});
-window.addEventListener("load",()=>setTimeout(()=>restoreSession(),100));
+document.getElementById("productSearch").oninput=renderKasir;document.getElementById("mobileCartBtn").onclick=()=>document.getElementById("cartPanel").scrollIntoView({behavior:"smooth",block:"start"});document.getElementById("clearCartBtn").onclick=()=>{if(confirm("Kosongkan keranjang?"))clearCart()};document.getElementById("checkoutBtn").onclick=openCheckout;document.getElementById("pendingBtn").onclick=createPending;
+document.getElementById("addProductBtn").onclick=()=>productModal();document.getElementById("exportBtn").onclick=exportCSV;document.getElementById("saveSettingsBtn").onclick=saveSettings;document.getElementById("testPrintBtn").onclick=testPrint;document.getElementById("addUserBtn").onclick=addUser;
+document.getElementById("qrisInput").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{S.settings.qris=r.result;document.getElementById("qrisPreview").src=r.result;document.getElementById("qrisPreview").classList.remove("hidden");save()};r.readAsDataURL(f)};
+document.getElementById("modalClose").onclick=closeModal;document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeModal()};
+if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
