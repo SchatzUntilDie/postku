@@ -35,3 +35,12 @@ This build connects authentication, products, orders, payments, settings, and pr
 - Form varian dibuat lebih nyaman di HP.
 - Pesan error penyimpanan dibuat lebih jelas.
 - Service worker cache dinaikkan versinya agar perubahan UI tidak tertahan cache lama.
+
+
+## POSTKU v5.0 Stabilization
+- Transaksi completed tetap menggunakan satu RPC/database transaction.
+- Pending sekarang diselesaikan pada order yang sama, tidak membuat order baru.
+- Produk di-soft-delete agar riwayat transaksi tetap aman.
+- Foto produk di-upload setelah UUID produk tersedia.
+- Realtime refresh dibuat debounce agar tidak memuat data berkali-kali saat satu perubahan memicu products + variants.
+- Kembalian tunai tampil dan dihitung langsung saat nominal uang diterima berubah.
