@@ -8,6 +8,7 @@ let S = {
   buyerName:"", tableNo:""
 };
 let current = null, activeCat="Semua", orderFilter="all", chartResizeObservers=[];
+let realtimeChannel = null;
 
 const rupiah = n => new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(Number(n)||0);
 const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
@@ -49,6 +50,16 @@ async function loadOrders(){
 }
 async function refreshData(){ await Promise.all([loadSettings(),loadProducts(),loadOrders()]); }
 
+function setupRealtime(){
+  if(!current)return;
+  if(realtimeChannel){ try{ db.removeChannel(realtimeChannel); }catch{} realtimeChannel=null; }
+  realtimeChannel=db.channel("postku-live-data")
+    .on("postgres_changes",{event:"*",schema:"public",table:"products"},async()=>{ await loadProducts(); if(!document.getElementById("view-products")?.classList.contains("hidden"))renderProducts(); if(!document.getElementById("view-kasir")?.classList.contains("hidden"))renderKasir(); renderDashboard(); })
+    .on("postgres_changes",{event:"*",schema:"public",table:"product_variants"},async()=>{ await loadProducts(); if(!document.getElementById("view-products")?.classList.contains("hidden"))renderProducts(); if(!document.getElementById("view-kasir")?.classList.contains("hidden"))renderKasir(); renderDashboard(); })
+    .on("postgres_changes",{event:"*",schema:"public",table:"orders"},async()=>{ await loadOrders(); if(!document.getElementById("view-orders")?.classList.contains("hidden"))renderOrders(); renderDashboard(); if(!document.getElementById("view-reports")?.classList.contains("hidden"))renderReports(); })
+    .subscribe();
+}
+
 async function login(){
   const username=document.getElementById("loginUser").value.trim();
   const password=document.getElementById("loginPass").value;
@@ -67,7 +78,7 @@ async function login(){
     document.getElementById("mainScreen").classList.remove("hidden");
     document.getElementById("currentUser").textContent=`${current.username||current.display_name||"User"} · ${current.role==="admin"?"Admin":"Kasir"}`;
     document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
-    localLoad(); await refreshData(); go("dashboard");
+    localLoad(); await refreshData(); setupRealtime(); go("dashboard");
   }catch(e){console.error(e);document.getElementById("loginError").textContent="Tidak dapat terhubung ke server."}
   finally{btn.disabled=false}
 }
@@ -81,9 +92,9 @@ async function restoreSession(){
   document.getElementById("mainScreen").classList.remove("hidden");
   document.getElementById("currentUser").textContent=`${p.username||p.display_name||"User"} · ${p.role==="admin"?"Admin":"Kasir"}`;
   document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
-  localLoad(); await refreshData(); go("dashboard"); return true;
+  localLoad(); await refreshData(); setupRealtime(); go("dashboard"); return true;
 }
-async function logout(){await db.auth.signOut();current=null;clearLocalCart();document.getElementById("mainScreen").classList.add("hidden");document.getElementById("loginScreen").classList.remove("hidden");document.getElementById("loginPass").value="";}
+async function logout(){if(realtimeChannel){try{await db.removeChannel(realtimeChannel)}catch{} realtimeChannel=null;}await db.auth.signOut();current=null;clearLocalCart();document.getElementById("mainScreen").classList.add("hidden");document.getElementById("loginScreen").classList.remove("hidden");document.getElementById("loginPass").value="";}
 
 function go(name){
   document.querySelectorAll(".view").forEach(v=>v.classList.add("hidden"));
@@ -288,14 +299,14 @@ function productModal(id=null){
       const payload={name,price,category:cat,stock,sku,image_url,is_active:true,updated_at:new Date().toISOString()};
       let productId=id;
       if(id){
-        const result=await db.from("products").update(payload).eq("id",id).select("id").maybeSingle();
+        // Do not require RETURNING/SELECT here: RLS may allow UPDATE but hide the row from SELECT.
+        const result=await db.from("products").update(payload).eq("id",id);
         if(result.error)throw new Error("Produk: "+result.error.message);
-        if(!result.data?.id){const fallback=await db.from("products").select("id").eq("id",id).maybeSingle();if(fallback.error||!fallback.data?.id)throw new Error("Produk berhasil diperbarui tetapi ID tidak dapat dibaca.");}
+        productId=id;
       }else{
-        const result=await db.from("products").insert(payload).select("id").maybeSingle();
+        const result=await db.from("products").insert(payload).select("id").single();
         if(result.error)throw new Error("Produk: "+result.error.message);
-        if(result.data?.id)productId=result.data.id;
-        else{const fallback=await db.from("products").select("id").eq("name",name).order("created_at",{ascending:false}).limit(1).maybeSingle();if(fallback.error||!fallback.data?.id)throw new Error("Produk tersimpan, tetapi ID tidak dapat dibaca. Coba buka ulang daftar produk.");productId=fallback.data.id;}
+        productId=result.data.id;
       }
       const existing=(p.variants||[]).map(v=>v.id),keep=rs.filter(v=>v.id).map(v=>v.id),remove=existing.filter(x=>!keep.includes(x));
       if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw new Error("Hapus varian: "+error.message)}
