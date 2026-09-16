@@ -21,7 +21,7 @@
       <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="Masukkan password"></div>
       <button class="primary big" id="loginBtn">Masuk</button>
       <div id="loginError" class="error"></div>
-      <div class="login-hint">Akun awal: <b>admin</b> / <b>admin123</b></div>
+      
     </div>
   </section>
 
@@ -43,7 +43,14 @@
           <div class="stat-card"><span>Pending</span><strong id="statPending">0</strong></div>
           <div class="stat-card"><span>Produk</span><strong id="statProducts">0</strong></div>
         </div>
-        <div class="panel"><div class="panel-head"><h2>Penjualan 7 Hari</h2></div><canvas id="salesChart" height="190"></canvas></div>
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Tren Penjualan</h2>
+            <div class="chart-toolbar"><select id="salesPeriod" aria-label="Periode grafik">
+              <option value="1">1 Hari</option><option value="7" selected>7 Hari</option><option value="30">30 Hari</option><option value="90">3 Bulan</option><option value="365">1 Tahun</option>
+            </select></div>
+          </div>
+          <div class="chart-wrap"><canvas id="salesChart" height="220"></canvas></div>
+        </div>
         <div class="panel"><div class="panel-head"><h2>Produk Terlaris</h2></div><div id="topProducts" class="rank-list"></div></div>
       </section>
 
@@ -79,7 +86,14 @@
       <section id="view-reports" class="view hidden">
         <div class="section-head"><div><span class="eyebrow">ANALITIK</span><h1>Laporan Penjualan</h1></div><button class="secondary" id="exportBtn">Export CSV</button></div>
         <div class="stat-grid"><div class="stat-card"><span>Total omzet</span><strong id="reportOmzet">Rp0</strong></div><div class="stat-card"><span>Transaksi selesai</span><strong id="reportTx">0</strong></div><div class="stat-card"><span>Rata-rata transaksi</span><strong id="reportAvg">Rp0</strong></div><div class="stat-card"><span>QRIS + Transfer</span><strong id="reportDigital">Rp0</strong></div></div>
-        <div class="panel"><div class="panel-head"><h2>Grafik 30 Hari</h2></div><canvas id="reportChart" height="220"></canvas></div>
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Tren Penjualan</h2>
+            <div class="chart-toolbar"><select id="reportPeriod" aria-label="Periode grafik">
+              <option value="1">1 Hari</option><option value="7">7 Hari</option><option value="30" selected>30 Hari</option><option value="90">3 Bulan</option><option value="365">1 Tahun</option>
+            </select></div>
+          </div>
+          <div class="chart-wrap"><canvas id="reportChart" height="220"></canvas></div>
+        </div>
         <div class="panel"><div class="panel-head"><h2>Metode Pembayaran</h2></div><div id="paymentBreakdown" class="rank-list"></div></div>
       </section>
 

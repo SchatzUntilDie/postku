@@ -20,3 +20,6 @@ Kasir: `kasir` / `kasir123`
 
 ## Catatan
 Data saat ini disimpan lokal di browser (localStorage), sehingga belum tersinkron antar-HP. Login lokal juga bukan sistem keamanan server. Untuk penggunaan multi-device diperlukan backend/database pada tahap berikutnya.
+
+
+POSTKU v2.2: UI responsif diperbarui, chart mendukung 1 Hari, 7 Hari, 30 Hari, 3 Bulan, 1 Tahun, dan kredensial admin diperbarui.

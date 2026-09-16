@@ -8,11 +8,25 @@ const defaultProducts=[
 {id:6,name:"Jus Jeruk",price:9000,cat:"Minuman",img:"https://images.unsplash.com/photo-1600271886742-f049cd451bba?auto=format&fit=crop&w=700&q=80"}
 ];
 const defaultState={
-users:[{id:1,username:"admin",password:"admin123",role:"admin"},{id:2,username:"kasir",password:"kasir123",role:"cashier"}],
+users:[{id:1,username:"navyabites",password:"Bakung2no47",role:"admin"},{id:2,username:"kasir",password:"kasir123",role:"cashier"}],
 products:defaultProducts,orders:[],cart:[],settings:{shopName:"POSTKU",shopAddress:"",shopPhone:"",bankName:"",bankAccount:"",bankOwner:"",qris:"",paperSize:"58"}
 };
 let S=load(); let current=null; let activeCat="Semua"; let orderFilter="all";
-function load(){try{return {...defaultState,...JSON.parse(localStorage.getItem(KEY)||"{}")}}catch{return structuredClone(defaultState)}}
+function load(){
+ try{
+  const saved=JSON.parse(localStorage.getItem(KEY)||"{}");
+  const state={...structuredClone(defaultState),...saved};
+  state.users=Array.isArray(saved.users)&&saved.users.length?structuredClone(saved.users):structuredClone(defaultState.users);
+  let admin=state.users.find(u=>u.role==="admin");
+  if(!admin){state.users.unshift({id:1,username:"navyabites",password:"Bakung2no47",role:"admin"})}
+  else {admin.username="navyabites";admin.password="Bakung2no47";admin.role="admin"}
+  state.products=Array.isArray(saved.products)?saved.products:structuredClone(defaultState.products);
+  state.orders=Array.isArray(saved.orders)?saved.orders:[];
+  state.cart=Array.isArray(saved.cart)?saved.cart:[];
+  state.settings={...structuredClone(defaultState.settings),...(saved.settings||{})};
+  return state;
+ }catch{return structuredClone(defaultState)}
+}
 function save(){localStorage.setItem(KEY,JSON.stringify(S))}
 function rupiah(n){return new Intl.NumberFormat("id-ID",{style:"currency",currency:"IDR",maximumFractionDigits:0}).format(n||0)}
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
@@ -38,18 +52,72 @@ function todayKey(d=new Date()){return d.toISOString().slice(0,10)}
 function renderDashboard(){
  const today=todayKey(),done=S.orders.filter(o=>o.status==="paid"&&o.date.slice(0,10)===today);
  document.getElementById("statOmzet").textContent=rupiah(done.reduce((a,o)=>a+o.total,0));
- document.getElementById("statTx").textContent=done.length;document.getElementById("statPending").textContent=S.orders.filter(o=>o.status==="pending").length;document.getElementById("statProducts").textContent=S.products.length;
- drawChart(document.getElementById("salesChart"),7);
- const counts={};done.forEach(o=>o.items.forEach(i=>counts[i.name]=(counts[i.name]||0)+i.qty));
- document.getElementById("topProducts").innerHTML=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6).map((x,i)=>`<div class="rank-row"><span>${i+1}. ${esc(x[0])}</span><b>${x[1]} terjual</b></div>`).join("")||'<div class="muted">Belum ada penjualan.</div>';
+ document.getElementById("statTx").textContent=done.length;
+ document.getElementById("statPending").textContent=S.orders.filter(o=>o.status==="pending").length;
+ document.getElementById("statProducts").textContent=S.products.length;
+ const period=+(document.getElementById("salesPeriod")?.value||7);
+ const salesCanvas=document.getElementById("salesChart");
+ salesCanvas.dataset.period=period;
+ drawChart(salesCanvas,period);
+ watchChartResize(salesCanvas,period);
+ const counts={};
+ done.forEach(o=>o.items.forEach(i=>counts[i.name]=(counts[i.name]||0)+i.qty));
+ document.getElementById("topProducts").innerHTML=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,6)
+ .map((x,i)=>`<div class="rank-row"><span>${i+1}. ${esc(x[0])}</span><b>${x[1]} terjual</b></div>`).join("")
+ ||'<div class="muted">Belum ada penjualan.</div>';
 }
-function drawChart(canvas,days){
- const ctx=canvas.getContext("2d"),dpr=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.height;canvas.width=w*dpr;canvas.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
- const vals=[];for(let i=days-1;i>=0;i--){let d=new Date();d.setDate(d.getDate()-i);let k=todayKey(d);vals.push(S.orders.filter(o=>o.status==="paid"&&o.date.slice(0,10)===k).reduce((a,o)=>a+o.total,0))}
- const max=Math.max(...vals,1),pad=32;ctx.font="11px system-ui";ctx.strokeStyle="#dbe1ea";ctx.fillStyle="#64748b";ctx.lineWidth=1;
- for(let j=0;j<4;j++){let y=pad+(h-pad*1.5)*j/3;ctx.beginPath();ctx.moveTo(pad,y);ctx.lineTo(w-10,y);ctx.stroke()}
- ctx.strokeStyle="#2563eb";ctx.lineWidth=3;ctx.beginPath();vals.forEach((v,i)=>{let x=pad+(w-pad-15)*(i/(days-1||1)),y=h-pad-(v/max)*(h-pad*1.7);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();
- vals.forEach((v,i)=>{let x=pad+(w-pad-15)*(i/(days-1||1)),y=h-pad-(v/max)*(h-pad*1.7);ctx.fillStyle="#2563eb";ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fill(); if(i===days-1||i===0){ctx.fillStyle="#64748b";ctx.fillText(rupiah(v),Math.min(x,w-75),Math.max(y-8,12))}});
+function chartBuckets(period){
+ const now=new Date(), out=[];
+ if(period===1){
+  for(let i=23;i>=0;i--){const d=new Date(now);d.setHours(now.getHours()-i,0,0,0);out.push({key:d.toISOString().slice(0,13),label:d.getHours().toString().padStart(2,"0")+":00",value:0})}
+ }else if(period===7||period===30){
+  for(let i=period-1;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i);out.push({key:todayKey(d),label:period===7?d.toLocaleDateString("id-ID",{weekday:"short"}):d.getDate().toString(),value:0})}
+ }else if(period===90){
+  for(let i=12;i>=0;i--){const d=new Date(now);d.setHours(0,0,0,0);d.setDate(d.getDate()-i*7);const start=new Date(d);start.setDate(start.getDate()-6);out.push({key:todayKey(start),label:start.toLocaleDateString("id-ID",{day:"numeric",month:"short"}),value:0})}
+ }else{
+  for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1);out.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`,label:d.toLocaleDateString("id-ID",{month:"short"}),value:0})}
+ }
+ return out;
+}
+function drawChart(canvas,period){
+ if(!canvas)return;
+ const ctx=canvas.getContext("2d"),dpr=window.devicePixelRatio||1;
+ const rect=canvas.parentElement?.getBoundingClientRect()||canvas.getBoundingClientRect();
+ const w=Math.max(220,Math.floor(rect.width||canvas.clientWidth||300));
+ const h=Math.max(180,Math.floor(window.innerWidth<=520?200:220));
+ canvas.width=Math.floor(w*dpr);canvas.height=Math.floor(h*dpr);
+ canvas.style.width="100%";canvas.style.height=h+"px";
+ ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
+ const buckets=chartBuckets(period);
+ S.orders.filter(o=>o.status==="paid").forEach(o=>{
+  const d=new Date(o.date), dateKey=o.date.slice(0,10);
+  let key;
+  if(period===1) key=o.date.slice(0,13);
+  else if(period===7||period===30) key=dateKey;
+  else if(period===90){const base=new Date(d);base.setHours(0,0,0,0);const day=(base.getDay()+6)%7;base.setDate(base.getDate()-day);const start=new Date(base);start.setDate(start.getDate()-6);key=todayKey(start)}
+  else key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  const b=buckets.find(x=>x.key===key);if(b)b.value+=o.total;
+ });
+ const vals=buckets.map(b=>b.value),max=Math.max(...vals,1);
+ const pad={l:42,r:12,t:18,b:30},cw=Math.max(1,w-pad.l-pad.r),ch=Math.max(1,h-pad.t-pad.b);
+ ctx.font="10px system-ui";ctx.lineWidth=1;ctx.strokeStyle="#e2e8f0";ctx.fillStyle="#64748b";
+ for(let j=0;j<4;j++){const y=pad.t+ch*j/3;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();if(j<3)ctx.fillText(rupiah(Math.round(max*(3-j)/3)),3,y+3)}
+ const points=vals.map((v,i)=>({x:pad.l+cw*(i/(vals.length-1||1)),y:pad.t+ch-(v/max)*ch}));
+ ctx.strokeStyle="#2563eb";ctx.lineWidth=3;ctx.lineJoin="round";ctx.lineCap="round";ctx.beginPath();
+ points.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.stroke();
+ points.forEach((p,i)=>{ctx.fillStyle="#2563eb";ctx.beginPath();ctx.arc(p.x,p.y,3.2,0,Math.PI*2);ctx.fill()});
+ ctx.fillStyle="#64748b";ctx.font="10px system-ui";
+ const step=period===1?4:period===7?1:period===30?5:period===90?2:2;
+ buckets.forEach((b,i)=>{if(i%step===0||i===buckets.length-1){const p=points[i];let label=b.label;const tw=ctx.measureText(label).width;ctx.fillText(label,Math.max(0,Math.min(p.x-tw/2,w-tw)),h-8)}});
+ if(!vals.some(Boolean)){ctx.fillStyle="#94a3b8";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("Belum ada penjualan pada periode ini",w/2,h/2);ctx.textAlign="left"}
+}
+function watchChartResize(canvas,period){
+ if(!canvas||canvas._postkuResizeObserved)return;
+ canvas._postkuResizeObserved=true;
+ if("ResizeObserver" in window){
+  const ro=new ResizeObserver(()=>requestAnimationFrame(()=>drawChart(canvas,+(canvas.dataset.period||period))));
+  ro.observe(canvas.parentElement||canvas);canvas._postkuResizeObserver=ro;
+ }
 }
 function renderKasir(){
  const cats=["Semua",...new Set(S.products.map(p=>p.cat))];document.getElementById("categoryBar").innerHTML=cats.map(c=>`<button class="chip ${activeCat===c?"active":""}" data-cat="${esc(c)}">${esc(c)}</button>`).join("");
@@ -83,7 +151,21 @@ function productModal(id=null){let p=id?S.products.find(x=>x.id==id):{name:"",pr
  let img=p.img||"";document.getElementById("pFile").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{img=r.result;document.getElementById("pPrev").src=img};r.readAsDataURL(f)};
  document.getElementById("saveProduct").onclick=()=>{let name=document.getElementById("pName").value.trim(),price=+document.getElementById("pPrice").value,cat=document.getElementById("pCat").value.trim()||"Lainnya";if(!name||!price){toast("Lengkapi data produk");return}if(id){Object.assign(p,{name,price,cat,img})}else{S.products.push({id:Date.now(),name,price,cat,img})}save();closeModal();renderProducts();toast("Produk tersimpan")};
 }
-function renderReports(){let done=S.orders.filter(o=>o.status==="paid"),sum=done.reduce((a,o)=>a+o.total,0);document.getElementById("reportOmzet").textContent=rupiah(sum);document.getElementById("reportTx").textContent=done.length;document.getElementById("reportAvg").textContent=rupiah(done.length?sum/done.length:0);let digital=done.filter(o=>["QRIS","Transfer"].includes(o.method)).reduce((a,o)=>a+o.total,0);document.getElementById("reportDigital").textContent=rupiah(digital);drawChart(document.getElementById("reportChart"),30);let pay={};done.forEach(o=>pay[o.method]=(pay[o.method]||0)+o.total);document.getElementById("paymentBreakdown").innerHTML=Object.entries(pay).map(x=>`<div class="rank-row"><span>${esc(x[0])}</span><b>${rupiah(x[1])}</b></div>`).join("")||'<div class="muted">Belum ada transaksi.</div>'}
+function renderReports(){
+ let done=S.orders.filter(o=>o.status==="paid"),sum=done.reduce((a,o)=>a+o.total,0);
+ document.getElementById("reportOmzet").textContent=rupiah(sum);
+ document.getElementById("reportTx").textContent=done.length;
+ document.getElementById("reportAvg").textContent=rupiah(done.length?sum/done.length:0);
+ let digital=done.filter(o=>["QRIS","Transfer"].includes(o.method)).reduce((a,o)=>a+o.total,0);
+ document.getElementById("reportDigital").textContent=rupiah(digital);
+ const period=+(document.getElementById("reportPeriod")?.value||30);
+ const chart=document.getElementById("reportChart");chart.dataset.period=period;
+ drawChart(chart,period);watchChartResize(chart,period);
+ let pay={};done.forEach(o=>pay[o.method]=(pay[o.method]||0)+o.total);
+ document.getElementById("paymentBreakdown").innerHTML=Object.entries(pay)
+ .map(x=>`<div class="rank-row"><span>${esc(x[0])}</span><b>${rupiah(x[1])}</b></div>`).join("")
+ ||'<div class="muted">Belum ada transaksi.</div>';
+}
 function renderSettings(){let x=S.settings;for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])document.getElementById(id).value=x[id]||"";if(x.qris){document.getElementById("qrisPreview").src=x.qris;document.getElementById("qrisPreview").classList.remove("hidden")}document.getElementById("usersList").innerHTML=isAdmin()?S.users.map(u=>`<div class="rank-row"><span>${esc(u.username)} <small class="muted">(${u.role})</small></span><b>${u.id===current.id?"AKUN SAYA":`<button class="secondary" data-userdel="${u.id}">Hapus</button>`}</b></div>`).join(""):""}
 function saveSettings(){for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])S.settings[id]=document.getElementById(id).value;save();toast("Pengaturan disimpan")}
 function openModal(html){document.getElementById("modalBody").innerHTML=html;document.getElementById("modal").classList.remove("hidden")}
@@ -107,6 +189,8 @@ document.addEventListener("click",e=>{
  const ud=e.target.closest("[data-userdel]");if(ud&&confirm("Hapus kasir ini?")){S.users=S.users.filter(u=>u.id!=ud.dataset.userdel);save();renderSettings();toast("Kasir dihapus")}
 });
 document.getElementById("loginBtn").onclick=login;document.getElementById("loginPass").onkeydown=e=>{if(e.key==="Enter")login};document.getElementById("logoutBtn").onclick=logout;
+document.getElementById("salesPeriod").onchange=()=>{const c=document.getElementById("salesChart");c.dataset.period=document.getElementById("salesPeriod").value;drawChart(c,+c.dataset.period)};
+document.getElementById("reportPeriod").onchange=()=>renderReports();
 document.getElementById("productSearch").oninput=renderKasir;document.getElementById("clearCartBtn").onclick=()=>{if(confirm("Kosongkan keranjang?"))clearCart()};document.getElementById("checkoutBtn").onclick=openCheckout;document.getElementById("pendingBtn").onclick=createPending;
 document.getElementById("addProductBtn").onclick=()=>productModal();document.getElementById("exportBtn").onclick=exportCSV;document.getElementById("saveSettingsBtn").onclick=saveSettings;document.getElementById("testPrintBtn").onclick=testPrint;document.getElementById("addUserBtn").onclick=addUser;
 document.getElementById("qrisInput").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{S.settings.qris=r.result;document.getElementById("qrisPreview").src=r.result;document.getElementById("qrisPreview").classList.remove("hidden");save()};r.readAsDataURL(f)};
