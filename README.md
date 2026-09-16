@@ -17,3 +17,11 @@ Catatan printer:
 Versi ini belum melakukan koneksi Bluetooth/USB langsung ke printer thermal. Tombol Cetak menggunakan fungsi print browser. Integrasi ESC/POS Bluetooth/USB/Wi-Fi akan menjadi tahap berikutnya setelah model printer ditentukan.
 
 Untuk pengujian PWA, buka melalui HTTPS atau localhost; service worker tidak aktif pada file://.
+
+
+## v1.1
+Added 192x192 and 512x512 PWA icons and improved manifest metadata for Android installation.
+
+
+## v1.2
+PWA icons are placed in the repository root to simplify upload from mobile GitHub.
