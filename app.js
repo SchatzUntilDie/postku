@@ -11,6 +11,7 @@ const defaultState={
 users:[{id:1,username:"navyabites",password:"Bakung2no47",role:"admin"},{id:2,username:"kasir",password:"kasir123",role:"cashier"}],
 products:defaultProducts,orders:[],cart:[],settings:{shopName:"POSTKU",shopAddress:"",shopPhone:"",bankName:"",bankAccount:"",bankOwner:"",qris:"",paperSize:"58"}
 };
+const SESSION_KEY="postku_login_session_v1";
 let S=load(); let current=null; let activeCat="Semua"; let orderFilter="all";
 function load(){
  try{
@@ -32,16 +33,45 @@ function rupiah(n){return new Intl.NumberFormat("id-ID",{style:"currency",curren
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 function toast(t){let x=document.getElementById("toast");x.textContent=t;x.classList.add("show");setTimeout(()=>x.classList.remove("show"),1800)}
 function isAdmin(){return current?.role==="admin"}
+function showLoggedIn(){
+ document.getElementById("loginScreen").classList.add("hidden");
+ document.getElementById("mainScreen").classList.remove("hidden");
+ document.getElementById("currentUser").textContent=`${current.username} · ${current.role==="admin"?"Admin":"Kasir"}`;
+ document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
+ go("dashboard");
+}
+function saveLoginSession(user){
+ try{localStorage.setItem(SESSION_KEY,JSON.stringify({id:user.id,username:user.username,role:user.role}))}catch{}
+}
+function restoreLoginSession(){
+ try{
+  const raw=localStorage.getItem(SESSION_KEY);
+  if(!raw)return false;
+  const saved=JSON.parse(raw);
+  const found=S.users.find(x=>String(x.id)===String(saved.id)&&x.username===saved.username&&x.role===saved.role);
+  if(!found){localStorage.removeItem(SESSION_KEY);return false}
+  current=found;
+  showLoggedIn();
+  return true;
+ }catch{localStorage.removeItem(SESSION_KEY);return false}
+}
 function login(){
  const u=document.getElementById("loginUser").value.trim(),p=document.getElementById("loginPass").value;
  const found=S.users.find(x=>x.username===u&&x.password===p);
  if(!found){document.getElementById("loginError").textContent="Username atau password salah.";return}
- current=found; document.getElementById("loginScreen").classList.add("hidden");document.getElementById("mainScreen").classList.remove("hidden");
- document.getElementById("currentUser").textContent=`${found.username} · ${found.role==="admin"?"Admin":"Kasir"}`;
- document.querySelectorAll(".admin-only").forEach(x=>x.classList.toggle("hidden",!isAdmin()));
- go("dashboard");
+ current=found;
+ if(document.getElementById("rememberLogin")?.checked) saveLoginSession(found); else localStorage.removeItem(SESSION_KEY);
+ document.getElementById("loginError").textContent="";
+ showLoggedIn();
 }
-function logout(){current=null;document.getElementById("mainScreen").classList.add("hidden");document.getElementById("loginScreen").classList.remove("hidden");document.getElementById("loginPass").value=""}
+function logout(){
+ current=null;
+ localStorage.removeItem(SESSION_KEY);
+ document.getElementById("mainScreen").classList.add("hidden");
+ document.getElementById("loginScreen").classList.remove("hidden");
+ document.getElementById("loginPass").value="";
+ document.getElementById("loginError").textContent="";
+}
 function go(name){
  document.querySelectorAll(".view").forEach(v=>v.classList.add("hidden"));document.getElementById("view-"+name).classList.remove("hidden");
  document.querySelectorAll(".nav").forEach(n=>n.classList.toggle("active",n.dataset.nav===name));
@@ -187,10 +217,54 @@ function renderReports(){
 }
 function renderSettings(){let x=S.settings;for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])document.getElementById(id).value=x[id]||"";if(x.qris){document.getElementById("qrisPreview").src=x.qris;document.getElementById("qrisPreview").classList.remove("hidden")}document.getElementById("usersList").innerHTML=isAdmin()?S.users.map(u=>`<div class="rank-row"><span>${esc(u.username)} <small class="muted">(${u.role})</small></span><b>${u.id===current.id?"AKUN SAYA":`<button class="secondary" data-userdel="${u.id}">Hapus</button>`}</b></div>`).join(""):""}
 function saveSettings(){for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"])S.settings[id]=document.getElementById(id).value;save();toast("Pengaturan disimpan")}
+function downloadJSON(filename,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+function backupData(){
+ const stamp=new Date();
+ const backup={format:"POSTKU-BACKUP",version:2,createdAt:stamp.toISOString(),data:{users:structuredClone(S.users),products:structuredClone(S.products),orders:structuredClone(S.orders),cart:structuredClone(S.cart),settings:structuredClone(S.settings)}};
+ const date=stamp.toISOString().replace(/[:.]/g,"-");
+ downloadJSON(`postku-backup-${date}.json`,backup);
+ const info=document.getElementById("backupInfo");if(info)info.textContent=`Backup dibuat ${stamp.toLocaleString("id-ID")}. Simpan file ini di tempat aman.`;
+ toast("Backup data berhasil dibuat");
+}
+function restoreDataFile(file){
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+  try{
+   const backup=JSON.parse(reader.result);
+   const d=backup?.data;
+   if(backup?.format!=="POSTKU-BACKUP"||!d||!Array.isArray(d.users)||!Array.isArray(d.products)||!Array.isArray(d.orders)||!Array.isArray(d.cart)||!d.settings||typeof d.settings!=="object") throw new Error("Format backup tidak valid");
+   if(!confirm("Restore akan mengganti data lokal POSTKU saat ini dengan data dari backup. Data saat ini akan dibackup otomatis terlebih dahulu. Lanjutkan?"))return;
+   backupData();
+   S={users:structuredClone(d.users),products:structuredClone(d.products),orders:structuredClone(d.orders),cart:structuredClone(d.cart),settings:{...structuredClone(defaultState.settings),...structuredClone(d.settings)}};
+   let admin=S.users.find(u=>u.role==="admin");
+   if(!admin){S.users.unshift({id:1,username:"navyabites",password:"Bakung2no47",role:"admin"})}
+   save();
+   localStorage.removeItem(SESSION_KEY);
+   current=null;
+   document.getElementById("mainScreen").classList.add("hidden");
+   document.getElementById("loginScreen").classList.remove("hidden");
+   document.getElementById("loginUser").value="";document.getElementById("loginPass").value="";
+   toast("Restore berhasil. Silakan login kembali.");
+  }catch(err){toast(err.message||"File backup tidak dapat dipulihkan")}
+  document.getElementById("restoreFile").value="";
+ };
+ reader.readAsText(file);
+}
 function openModal(html){document.getElementById("modalBody").innerHTML=html;document.getElementById("modal").classList.remove("hidden")}
 function closeModal(){document.getElementById("modal").classList.add("hidden")}
 function printReceipt(o,type="receipt"){const w=window.open("","_blank");if(!w){toast("Izinkan pop-up untuk mencetak");return}let size=S.settings.paperSize==="80"?"80mm":"58mm";let items=o.items.map(i=>`<tr><td>${i.qty}× ${esc(i.name)}</td><td>${rupiah(i.price*i.qty)}</td></tr>`).join("");w.document.write(`<html><head><title>${o.id}</title><style>@page{size:${size} auto;margin:0}body{font-family:monospace;width:${size};margin:0;padding:4mm;font-size:12px}h2{text-align:center;margin:0 0 4px}p{margin:3px 0}table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top}td:last-child{text-align:right}.line{border-top:1px dashed #000;margin:7px 0}.center{text-align:center}</style></head><body><h2>${esc(S.settings.shopName||"POSTKU")}</h2><p class="center">${esc(S.settings.shopAddress||"")}</p><div class="line"></div><p>Order: ${o.id}</p><p>Pembeli: ${esc(o.buyer)}</p><p>Kasir: ${esc(o.cashier)}</p><p>${new Date(o.date).toLocaleString("id-ID")}</p><div class="line"></div><table>${items}</table><div class="line"></div><table><tr><td><b>TOTAL</b></td><td><b>${rupiah(o.total)}</b></td></tr>${o.method!=="-"?`<tr><td>${esc(o.method)}</td><td>${rupiah(o.cash)}</td></tr><tr><td>Kembali</td><td>${rupiah(o.change)}</td></tr>`:""}</table><div class="line"></div><p class="center">Terima kasih</p><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);w.document.close()}
-function exportCSV(){let rows=[["ID","Tanggal","Pembeli","Kasir","Status","Metode","Total"],...S.orders.map(o=>[o.id,o.date,o.buyer,o.cashier,o.status,o.method,o.total])];let csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="postku-laporan.csv";a.click();URL.revokeObjectURL(a.href)}
+function exportCSV(){let rows=[["ID","Tanggal","Pembeli","Kasir","Status","Metode","Total"],...S.orders.map(o=>[o.id,o.date,o.buyer,o.cashier,o.status,o.method,o.total])];let csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="postku-backup-laporan.csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+function printDailyReport(){
+ const input=document.getElementById("reportDate");const dateKey=input?.value||todayKey();
+ const done=S.orders.filter(o=>o.status==="paid"&&o.date.slice(0,10)===dateKey);
+ const total=done.reduce((a,o)=>a+o.total,0),cash=done.filter(o=>o.method==="Tunai").reduce((a,o)=>a+o.total,0),qris=done.filter(o=>o.method==="QRIS").reduce((a,o)=>a+o.total,0),transfer=done.filter(o=>o.method==="Transfer").reduce((a,o)=>a+o.total,0),debit=done.filter(o=>o.method==="Debit").reduce((a,o)=>a+o.total,0);
+ const items={};done.forEach(o=>o.items.forEach(i=>{const k=i.name;items[k]=(items[k]||0)+i.qty}));
+ const itemRows=Object.entries(items).sort((a,b)=>b[1]-a[1]).map(([name,qty])=>`<tr><td>${esc(name)}</td><td>${qty}</td></tr>`).join("")||'<tr><td colspan="2" class="center">Tidak ada penjualan</td></tr>';
+ const txRows=done.map(o=>`<tr><td>${esc(o.id.replace("ORD-",""))}</td><td>${rupiah(o.total)}</td></tr>`).join("")||'<tr><td colspan="2" class="center">Tidak ada transaksi</td></tr>';
+ const w=window.open("","_blank");if(!w){toast("Izinkan pop-up untuk mencetak");return}let size=S.settings.paperSize==="80"?"80mm":"58mm";
+ w.document.write(`<html><head><title>Laporan ${dateKey}</title><style>@page{size:${size} auto;margin:0}body{font-family:monospace;width:${size};margin:0;padding:4mm;font-size:11px;box-sizing:border-box}h2{text-align:center;margin:0 0 3px;font-size:15px}p{margin:3px 0}.line{border-top:1px dashed #000;margin:7px 0}table{width:100%;border-collapse:collapse}td{padding:3px 0;vertical-align:top}td:last-child{text-align:right}.total{font-size:13px;font-weight:bold}.center{text-align:center}.small{font-size:10px;color:#444}.section{font-weight:bold;margin-top:6px}</style></head><body><h2>${esc(S.settings.shopName||"POSTKU")}</h2><p class="center">LAPORAN PENJUALAN HARIAN</p><p class="center">${new Date(dateKey+"T00:00:00").toLocaleDateString("id-ID",{weekday:"long",day:"2-digit",month:"long",year:"numeric"})}</p><div class="line"></div><table><tr><td>Transaksi</td><td>${done.length}</td></tr><tr class="total"><td>OMZET</td><td>${rupiah(total)}</td></tr><tr><td>Rata-rata</td><td>${rupiah(done.length?total/done.length:0)}</td></tr></table><div class="line"></div><div class="section">METODE PEMBAYARAN</div><table><tr><td>Tunai</td><td>${rupiah(cash)}</td></tr><tr><td>QRIS</td><td>${rupiah(qris)}</td></tr><tr><td>Transfer</td><td>${rupiah(transfer)}</td></tr><tr><td>Debit</td><td>${rupiah(debit)}</td></tr></table><div class="line"></div><div class="section">PRODUK TERJUAL</div><table>${itemRows}</table><div class="line"></div><div class="section">DAFTAR TRANSAKSI</div><table>${txRows}</table><div class="line"></div><p class="center small">Dicetak ${new Date().toLocaleString("id-ID")}</p><p class="center">${esc(S.settings.shopName||"POSTKU")}</p><script>window.onload=()=>{window.print();setTimeout(()=>window.close(),500)}<\/script></body></html>`);w.document.close()
+}
 function addUser(){openModal(`<h2>Tambah Kasir</h2><div class="field"><label>Username</label><input id="nu"></div><div class="field"><label>Password</label><input id="np" type="password"></div><button class="primary" style="width:100%" id="saveUser">Simpan</button>`);document.getElementById("saveUser").onclick=()=>{let u=document.getElementById("nu").value.trim(),p=document.getElementById("np").value;if(!u||!p||S.users.some(x=>x.username===u)){toast("Username kosong atau sudah dipakai");return}S.users.push({id:Date.now(),username:u,password:p,role:"cashier"});save();closeModal();renderSettings();toast("Kasir ditambahkan")}}
 function testPrint(){const o={id:"TEST-001",date:new Date().toISOString(),buyer:"Test",cashier:current.username,items:[{name:"Contoh Produk",price:10000,qty:1}],total:10000,method:"Tunai",cash:10000,change:0};printReceipt(o)}
 document.addEventListener("click",e=>{
@@ -208,10 +282,13 @@ document.addEventListener("click",e=>{
  const ud=e.target.closest("[data-userdel]");if(ud&&confirm("Hapus kasir ini?")){S.users=S.users.filter(u=>u.id!=ud.dataset.userdel);save();renderSettings();toast("Kasir dihapus")}
 });
 document.getElementById("loginBtn").onclick=login;document.getElementById("loginPass").onkeydown=e=>{if(e.key==="Enter")login};document.getElementById("logoutBtn").onclick=logout;
+window.addEventListener("DOMContentLoaded",()=>{ if(!restoreLoginSession()) document.getElementById("loginUser")?.focus(); });
 document.getElementById("salesPeriod").onchange=()=>{const c=document.getElementById("salesChart");c.dataset.period=document.getElementById("salesPeriod").value;drawChart(c,+c.dataset.period)};
 document.getElementById("reportPeriod").onchange=()=>renderReports();
+const reportDate=document.getElementById("reportDate");if(reportDate)reportDate.value=todayKey();
+document.getElementById("dailyReportBtn").onclick=printDailyReport;
 document.getElementById("productSearch").oninput=renderKasir;document.getElementById("mobileCartBtn").onclick=()=>document.getElementById("cartPanel").scrollIntoView({behavior:"smooth",block:"start"});document.getElementById("clearCartBtn").onclick=()=>{if(confirm("Kosongkan keranjang?"))clearCart()};document.getElementById("checkoutBtn").onclick=openCheckout;document.getElementById("pendingBtn").onclick=createPending;
-document.getElementById("addProductBtn").onclick=()=>productModal();document.getElementById("exportBtn").onclick=exportCSV;document.getElementById("saveSettingsBtn").onclick=saveSettings;document.getElementById("testPrintBtn").onclick=testPrint;document.getElementById("addUserBtn").onclick=addUser;
+document.getElementById("addProductBtn").onclick=()=>productModal();document.getElementById("exportBtn").onclick=exportCSV;document.getElementById("backupBtn").onclick=backupData;document.getElementById("restoreBtn").onclick=()=>document.getElementById("restoreFile").click();document.getElementById("restoreFile").onchange=e=>restoreDataFile(e.target.files[0]);document.getElementById("saveSettingsBtn").onclick=saveSettings;document.getElementById("testPrintBtn").onclick=testPrint;document.getElementById("addUserBtn").onclick=addUser;
 document.getElementById("qrisInput").onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{S.settings.qris=r.result;document.getElementById("qrisPreview").src=r.result;document.getElementById("qrisPreview").classList.remove("hidden");save()};r.readAsDataURL(f)};
 document.getElementById("modalClose").onclick=closeModal;document.getElementById("modal").onclick=e=>{if(e.target.id==="modal")closeModal()};
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));

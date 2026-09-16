@@ -1,26 +1,23 @@
-# POSTKU v2.3 Stable Local
+# POSTKU v2.3
 
-Versi baseline POSTKU tanpa Supabase/database cloud.
+PWA kasir sederhana untuk HP.
 
-Data transaksi, produk, akun, pengaturan, dan keranjang disimpan di localStorage perangkat.
+## v2.3
+- UI kasir baru yang lebih modern dan nyaman di HP
+- Kartu produk dengan foto, kategori, indikator jumlah di keranjang
+- Pencarian dan filter kategori
+- Keranjang dan informasi pembeli yang lebih jelas
+- Chart responsif + periode 1 hari, 7 hari, 30 hari, 3 bulan, 1 tahun
+- Login admin/kasir lokal untuk prototipe
+- Siap dipindahkan ke database cloud
 
-Fitur:
-- Login admin/kasir lokal
-- Kasir dan keranjang
-- Nama pembeli
-- Pembayaran tunai/QRIS/transfer
-- Kembalian
-- Pending
-- Riwayat transaksi
-- Laporan + chart 1 hari/7 hari/30 hari/3 bulan/1 tahun
-- Produk
-- Pengaturan toko
-- Cetak struk/order
-- PWA
+## Database
+Lihat `DATABASE-SETUP.md` dan `schema.sql` untuk tahap sinkronisasi antar perangkat.
 
-Akun awal:
-Admin: navyabites / Bakung2no47
-Kasir: kasir / kasir123
 
-Catatan:
-File database/Supabase sengaja tidak disertakan dalam baseline ini agar aplikasi tidak bergantung pada koneksi cloud.
+### Login Session
+POSTKU v2.3.2 menambahkan opsi **Tetap masuk di perangkat ini**. Yang disimpan hanya ID/username/role sesi, bukan password. Tombol Logout menghapus sesi tersimpan.
+
+
+## v2.3.2
+Menambahkan cetak struk laporan penjualan harian berdasarkan tanggal, tanpa mengubah atau menghapus data transaksi yang tersimpan. Export CSV tetap tersedia sebagai backup laporan.

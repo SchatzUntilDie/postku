@@ -20,6 +20,7 @@
       <div class="field"><label>Username</label><input id="loginUser" autocomplete="username" placeholder="Masukkan username"></div>
       <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password" placeholder="Masukkan password"></div>
       <button class="primary big" id="loginBtn">Masuk</button>
+      <label class="remember-login"><input type="checkbox" id="rememberLogin" checked> <span>Tetap masuk di perangkat ini</span></label>
       <div id="loginError" class="error"></div>
       
     </div>
@@ -96,7 +97,7 @@
       </section>
 
       <section id="view-reports" class="view hidden">
-        <div class="section-head"><div><span class="eyebrow">ANALITIK</span><h1>Laporan Penjualan</h1></div><button class="secondary" id="exportBtn">Export CSV</button></div>
+        <div class="section-head"><div><span class="eyebrow">ANALITIK</span><h1>Laporan Penjualan</h1></div><div class="report-actions"><input id="reportDate" type="date" aria-label="Tanggal laporan"><button class="primary" id="dailyReportBtn">🧾 Cetak Laporan Harian</button><button class="secondary" id="exportBtn">Backup CSV</button></div></div>
         <div class="stat-grid"><div class="stat-card"><span>Total omzet</span><strong id="reportOmzet">Rp0</strong></div><div class="stat-card"><span>Transaksi selesai</span><strong id="reportTx">0</strong></div><div class="stat-card"><span>Rata-rata transaksi</span><strong id="reportAvg">Rp0</strong></div><div class="stat-card"><span>QRIS + Transfer</span><strong id="reportDigital">Rp0</strong></div></div>
         <div class="panel chart-panel">
           <div class="panel-head"><h2>Tren Penjualan</h2>
@@ -116,6 +117,7 @@
           <div class="panel"><h2>Pembayaran</h2><div class="field"><label>Bank</label><input id="bankName" placeholder="BCA"></div><div class="field"><label>No. rekening</label><input id="bankAccount"></div><div class="field"><label>Atas nama</label><input id="bankOwner"></div><div class="field"><label>QRIS gambar</label><input id="qrisInput" type="file" accept="image/*"><img id="qrisPreview" class="qris-preview hidden"></div></div>
           <div class="panel"><h2>Printer</h2><div class="field"><label>Ukuran kertas</label><select id="paperSize"><option value="58">58 mm</option><option value="80">80 mm</option></select></div><p class="muted">Cetak order dan struk menggunakan dialog print Chrome. Untuk printer thermal Bluetooth, pilih printer thermal saat dialog cetak jika didukung perangkat.</p><button class="secondary" id="testPrintBtn">Cetak Test</button></div>
           <div class="panel admin-only"><h2>Pengguna</h2><div id="usersList"></div><button class="secondary" id="addUserBtn">+ Tambah Kasir</button></div>
+          <div class="panel"><h2>Backup & Restore</h2><p class="muted">Simpan salinan seluruh data POSTKU di perangkat ini. Backup tidak menghapus data yang sedang digunakan.</p><div class="backup-actions"><button class="primary" id="backupBtn">💾 Backup Data</button><button class="secondary" id="restoreBtn">📂 Restore Data</button><input id="restoreFile" type="file" accept="application/json,.json" class="hidden"></div><p class="muted small" id="backupInfo">Backup berisi produk, transaksi, pengguna, pengaturan, dan data lokal lainnya. Sesi login tidak ikut dibackup.</p></div>
         </div>
       </section>
     </main>
