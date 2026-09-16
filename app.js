@@ -229,14 +229,28 @@ async function voidOrder(id){
 function renderProducts(){
   document.getElementById("productsList").innerHTML=S.products.map(p=>{const vars=p.variants||[];return `<div class="admin-product"><img loading="lazy" src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${vars.length?vars.map(v=>`${esc(v.name)} (${v.stock})`).join(" · "):rupiah(p.price)}</div></div><button class="secondary" data-edit="${p.id}">Edit</button><button class="secondary" data-delete="${p.id}">Hapus</button></div>`}).join("")||'<div class="panel muted">Belum ada produk.</div>';
 }
+async function prepareProductImage(file){
+  if(!file)return null;
+  if(!/^image\/(jpeg|png|webp)$/i.test(file.type))throw new Error("Format foto harus JPG, PNG, atau WebP.");
+  if(file.size<=900*1024)return file;
+  const bmp=await createImageBitmap(file);
+  const max=1200,scale=Math.min(1,max/Math.max(bmp.width,bmp.height));
+  const c=document.createElement("canvas");c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));
+  c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);bmp.close?.();
+  const blob=await new Promise((resolve,reject)=>c.toBlob(resolve,"image/jpeg",0.82));
+  if(!blob)throw new Error("Foto tidak dapat diproses di perangkat ini.");
+  return new File([blob],"product.jpg",{type:"image/jpeg",lastModified:Date.now()});
+}
 async function uploadProductImage(file){
-  const ext=(file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";const path=`${current.id}/${crypto.randomUUID()}.${ext}`;
-  const {error}=await db.storage.from("product-images").upload(path,file,{upsert:false,contentType:file.type,cacheControl:"31536000"});if(error)throw error;
+  const prepared=await prepareProductImage(file);
+  const ext=(prepared.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"")||"jpg";const path=`${current.id}/${crypto.randomUUID()}.${ext}`;
+  const {error}=await db.storage.from("product-images").upload(path,prepared,{upsert:false,contentType:prepared.type,cacheControl:"86400"});if(error)throw new Error("Upload foto: "+error.message);
   return db.storage.from("product-images").getPublicUrl(path).data.publicUrl;
 }
 function productModal(id=null){
   const p=id?S.products.find(x=>String(x.id)===String(id)):{name:"",price:0,cat:"Makanan",img:"",stock:0,sku:"",variants:[]};
   let variants=(p.variants||[]).map(v=>({id:v.id,name:v.name,price:v.price,stock:v.stock,sku:v.sku||""}));
+  let removeImage=false;
   const rows=()=>variants.map((v,i)=>`<div class="variant-edit-row" data-vrow="${i}">
     <div class="variant-field"><label>Nama / rasa</label><input class="v-name" value="${esc(v.name)}" placeholder="Contoh: Matcha"></div>
     <div class="variant-field"><label>Harga</label><input class="v-price" type="number" min="0" value="${v.price??p.price??0}" inputmode="numeric" placeholder="10000"></div>
@@ -250,7 +264,7 @@ function productModal(id=null){
     <div class="field"><label>Harga dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pPrice" type="number" min="0" value="${p.price||0}" inputmode="numeric"></div>
     <div class="field"><label>Stok dasar <span class="muted">(dipakai jika tidak ada varian)</span></label><input id="pStock" type="number" min="0" value="${p.stock||0}" inputmode="numeric"></div>
     <div class="field"><label>SKU dasar <span class="muted">(opsional)</span></label><input id="pSku" value="${esc(p.sku||"")}" placeholder="RSL"></div>
-    <div class="field"><label>Foto produk <span class="muted">JPG/PNG/WebP, maks. 1 MB</span></label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><img id="pPrev" class="product-modal-preview" src="${esc(p.img||placeholder())}" alt="Preview produk"></div>
+    <div class="field"><label>Foto produk <span class="muted">JPG/PNG/WebP · otomatis diperkecil bila perlu</span></label><input id="pFile" type="file" accept="image/jpeg,image/png,image/webp"><div class="photo-actions"><button type="button" class="secondary" id="replacePhoto">Ganti Foto</button>${p.img?'<button type="button" class="secondary" id="removePhoto">Hapus Foto</button>':''}</div><img id="pPrev" class="product-modal-preview" src="${esc(p.img||placeholder())}" alt="Preview produk"></div>
     <div class="field variant-section"><div class="variant-head"><div><label>Varian / Rasa</label><small class="muted">Satu produk dapat memiliki banyak varian dengan stok berbeda.</small></div><button type="button" class="secondary" id="addVariantRow">+ Tambah Varian</button></div>
       <div id="variantRows">${rows()}</div><small class="muted">Contoh: Risol → Matcha stok 10, Coklat stok 10.</small>
     </div>
@@ -259,7 +273,9 @@ function productModal(id=null){
   const bind=()=>document.querySelectorAll("[data-remove-v]").forEach(b=>b.onclick=()=>{variants.splice(Number(b.dataset.removeV),1);redraw();bind()});
   document.getElementById("addVariantRow").onclick=()=>{variants.push({id:null,name:"",price:Number(p.price)||0,stock:0,sku:""});redraw();bind();setTimeout(()=>document.querySelectorAll('.v-name')[document.querySelectorAll('.v-name').length-1]?.focus(),0)};
   bind();
-  document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(!f)return;if(f.size>1024*1024){toast("Foto terlalu besar. Maksimal 1 MB.");e.target.value="";return}document.getElementById("pPrev").src=URL.createObjectURL(f)};
+  document.getElementById("replacePhoto")?.addEventListener("click",()=>document.getElementById("pFile").click());
+  document.getElementById("removePhoto")?.addEventListener("click",()=>{removeImage=true;document.getElementById("pFile").value="";document.getElementById("pPrev").src=placeholder();});
+  document.getElementById("pFile").onchange=e=>{const f=e.target.files[0];if(!f)return;if(!/^image\/(jpeg|png|webp)$/i.test(f.type)){toast("Gunakan JPG, PNG, atau WebP");e.target.value="";return}removeImage=false;document.getElementById("pPrev").src=URL.createObjectURL(f)};
   document.getElementById("saveProduct").onclick=async()=>{
     const name=document.getElementById("pName").value.trim(),price=Number(document.getElementById("pPrice").value)||0,cat=document.getElementById("pCat").value.trim()||"Lainnya",stock=Number(document.getElementById("pStock").value)||0,sku=document.getElementById("pSku").value.trim()||null,file=document.getElementById("pFile").files[0];
     const rs=[...document.querySelectorAll(".variant-edit-row")].map(row=>{const i=Number(row.dataset.vrow),old=variants[i]||{};const item={name:row.querySelector(".v-name").value.trim(),price:Number(row.querySelector(".v-price").value)||0,stock:Number(row.querySelector(".v-stock").value)||0,sku:row.querySelector(".v-sku").value.trim()||null};if(old.id)item.id=old.id;return item});
@@ -268,10 +284,19 @@ function productModal(id=null){
     if(new Set(rs.map(v=>v.name.toLowerCase())).size!==rs.length){toast("Nama varian tidak boleh sama");return}
     const btn=document.getElementById("saveProduct");btn.disabled=true;btn.textContent="Menyimpan…";
     try{
-      let image_url=p.img||null;if(file)image_url=await uploadProductImage(file);
-      const payload={name,price,category:cat,stock,sku,image_url,is_active:true};
-      const result=id?await db.from("products").update(payload).eq("id",id).select("id").single():await db.from("products").insert(payload).select("id").single();
-      if(result.error)throw new Error("Produk: "+result.error.message);const productId=result.data.id;
+      let image_url=removeImage?null:(p.img||null);if(file)image_url=await uploadProductImage(file);
+      const payload={name,price,category:cat,stock,sku,image_url,is_active:true,updated_at:new Date().toISOString()};
+      let productId=id;
+      if(id){
+        const result=await db.from("products").update(payload).eq("id",id).select("id").maybeSingle();
+        if(result.error)throw new Error("Produk: "+result.error.message);
+        if(!result.data?.id){const fallback=await db.from("products").select("id").eq("id",id).maybeSingle();if(fallback.error||!fallback.data?.id)throw new Error("Produk berhasil diperbarui tetapi ID tidak dapat dibaca.");}
+      }else{
+        const result=await db.from("products").insert(payload).select("id").maybeSingle();
+        if(result.error)throw new Error("Produk: "+result.error.message);
+        if(result.data?.id)productId=result.data.id;
+        else{const fallback=await db.from("products").select("id").eq("name",name).order("created_at",{ascending:false}).limit(1).maybeSingle();if(fallback.error||!fallback.data?.id)throw new Error("Produk tersimpan, tetapi ID tidak dapat dibaca. Coba buka ulang daftar produk.");productId=fallback.data.id;}
+      }
       const existing=(p.variants||[]).map(v=>v.id),keep=rs.filter(v=>v.id).map(v=>v.id),remove=existing.filter(x=>!keep.includes(x));
       if(remove.length){const {error}=await db.from("product_variants").delete().in("id",remove);if(error)throw new Error("Hapus varian: "+error.message)}
       const updates=rs.filter(v=>v.id).map(v=>db.from("product_variants").update({name:v.name,sku:v.sku,price:v.price,stock:v.stock,is_active:true}).eq("id",v.id));
@@ -289,10 +314,40 @@ function renderReports(){
   const period=+(document.getElementById("reportPeriod")?.value||30);drawChart(document.getElementById("reportChart"),period);watchChartResize(document.getElementById("reportChart"),period);
   const pay={};done.forEach(o=>pay[o.method]=(pay[o.method]||0)+o.total);document.getElementById("paymentBreakdown").innerHTML=Object.entries(pay).map(([k,v])=>`<div class="rank-row"><span>${esc(k)}</span><b>${rupiah(v)}</b></div>`).join("")||'<div class="muted">Belum ada transaksi.</div>';
 }
+async function loadCashiers(){
+  const box=document.getElementById("usersList");
+  if(!box||!isAdmin())return;
+  box.innerHTML='<div class="muted">Memuat akun kasir…</div>';
+  try{
+    const {data:session}=await db.auth.getSession();
+    const token=session?.session?.access_token;
+    if(!token){box.innerHTML='<div class="muted">Sesi login tidak ditemukan.</div>';return}
+    const r=await fetch(`${window.POSTKU_SUPABASE_URL}/functions/v1/postku-admin-users`,{headers:{Authorization:`Bearer ${token}`,apikey:window.POSTKU_SUPABASE_KEY}});
+    const data=await r.json();
+    if(!r.ok)throw new Error(data?.error||"Gagal memuat akun kasir");
+    const users=data.users||[];
+    box.innerHTML=users.map(u=>`<div class="user-row"><div><b>${esc(u.display_name||u.username)}</b><small class="muted">@${esc(u.username)}</small></div><span class="badge paid">KASIR</span></div>`).join("")||'<div class="muted">Belum ada akun kasir.</div>';
+  }catch(e){console.error(e);box.innerHTML='<div class="muted">Gagal memuat akun kasir.</div>'}
+}
+async function createCashier(){
+  if(!isAdmin()){toast("Hanya Admin");return}
+  openModal(`<h2>Tambah Kasir</h2><p class="muted">Buat akun login khusus kasir. Email internal dibuat otomatis oleh POSTKU.</p><div class="field"><label>Username</label><input id="cashierUsername" autocomplete="off" placeholder="Contoh: kasir01"></div><div class="field"><label>Nama kasir</label><input id="cashierName" autocomplete="off" placeholder="Contoh: Andi"></div><div class="field"><label>Password</label><input id="cashierPassword" type="password" autocomplete="new-password" placeholder="Minimal 6 karakter"></div><button class="primary" style="width:100%" id="saveCashier">Buat Akun Kasir</button>`);
+  document.getElementById("saveCashier").onclick=async()=>{
+    const btn=document.getElementById("saveCashier"),username=document.getElementById("cashierUsername").value.trim(),display_name=document.getElementById("cashierName").value.trim(),password=document.getElementById("cashierPassword").value;
+    if(!username||!password){toast("Username dan password wajib diisi");return}
+    btn.disabled=true;btn.textContent="Membuat…";
+    try{
+      const {data:session}=await db.auth.getSession();const token=session?.session?.access_token;if(!token)throw new Error("Sesi login tidak ditemukan");
+      const r=await fetch(`${window.POSTKU_SUPABASE_URL}/functions/v1/postku-admin-users`,{method:"POST",headers:{Authorization:`Bearer ${token}`,apikey:window.POSTKU_SUPABASE_KEY,"Content-Type":"application/json"},body:JSON.stringify({username,display_name:display_name||username,password})});
+      const data=await r.json();if(!r.ok)throw new Error(data?.error||"Gagal membuat akun");
+      closeModal();await loadCashiers();toast(`Akun kasir @${username} berhasil dibuat`);
+    }catch(e){console.error(e);toast(e.message||"Gagal membuat akun kasir")}finally{btn.disabled=false;btn.textContent="Buat Akun Kasir"}
+  };
+}
 function renderSettings(){
   const x=S.settings;for(const id of ["shopName","shopAddress","shopPhone","bankName","bankAccount","bankOwner","paperSize"]){const el=document.getElementById(id);if(el)el.value=x[id]||""}
   const q=document.getElementById("qrisPreview");if(x.qris){q.src=x.qris;q.classList.remove("hidden")}else q.classList.add("hidden");
-  document.getElementById("usersList").innerHTML=isAdmin()?'<div class="muted">Manajemen kasir online akan menggunakan Supabase Auth pada tahap berikutnya.</div>':"";
+  if(isAdmin())loadCashiers();
 }
 async function saveSettings(){
   const payload={store_name:document.getElementById("shopName").value.trim()||"POSTKU",bank_name:document.getElementById("bankName").value.trim()||null,bank_account_name:document.getElementById("bankOwner").value.trim()||null,bank_account_number:document.getElementById("bankAccount").value.trim()||null,qris_image_url:S.settings.qris||null};
@@ -312,7 +367,7 @@ function exportCSV(){
   const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n"),a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download="postku-laporan.csv";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
-function addUser(){toast("Pembuatan akun kasir online akan dibuat di tahap Manajemen Kasir.")}
+function addUser(){createCashier()}
 function testPrint(){const o={displayId:"TEST-001",date:new Date().toISOString(),buyer:"Test",cashier:current?.username||"Kasir",items:[{name:"Contoh Produk",price:10000,qty:1}],total:10000,method:"Tunai",cash:10000,change:0};printReceipt(o)}
 
 document.addEventListener("click",async e=>{
