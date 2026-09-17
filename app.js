@@ -244,10 +244,29 @@ function finishPayment(method,cash){
  for(const i of S.cart){const p=S.products.find(x=>String(x.id)===String(i.id));const v=p.variants.find(x=>String(x.id)===String(i.variantId));v.stock-=i.qty;syncProductStock(p)}
  S.orders.unshift(order);clearCart();closeModal();save();go("orders");setTimeout(()=>printReceipt(order,"receipt"),200);toast("Transaksi berhasil");}
 function createPending(){if(!S.cart.length){toast("Keranjang masih kosong");return}const now=new Date();const o={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("buyerName").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"pending",cashier:current.username};S.orders.unshift(o);clearCart();save();go("orders");toast("Pesanan disimpan sebagai pending")}
-function renderOrders(){const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);document.getElementById("ordersList").innerHTML=arr.map(o=>`<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":"DIBATALKAN"}</span></div><div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div><div class="order-actions" style="margin-top:12px">${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Void</button>`:""}</div></div>`).join("")||'<div class="panel muted">Belum ada pesanan.</div>'}
+function renderOrders(){const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);document.getElementById("ordersList").innerHTML=arr.map(o=>`<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":o.status==="void"?"VOID":"DIBATALKAN"}</span></div><div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` <span class="muted">(${esc(i.variantName)})</span>`:""}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div>${o.status==="void"&&o.voidedBy?`<div class="muted" style="font-size:11px;margin-top:5px">Void oleh ${esc(o.voidedBy)} · ${new Date(o.voidedAt||o.date).toLocaleString("id-ID")}</div>`:""}<div class="order-actions" style="margin-top:12px">${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Void</button>`:""}</div></div>`).join("")||'<div class="panel muted">Belum ada pesanan.</div>'}
 function resumeOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));S.buyerName=o.buyer;S.tableNo=o.table;S.orders=S.orders.filter(x=>x.id!==id);save();go("kasir");toast("Pesanan dikembalikan ke keranjang")}
 function cancelOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;o.status="cancelled";save();renderOrders();toast("Pesanan dibatalkan")}
-function voidOrder(id){if(!isAdmin()){toast("Hanya Admin yang dapat void");return}let o=S.orders.find(x=>x.id===id);if(!o)return;o.status="cancelled";o.voidedBy=current.username;save();renderOrders();toast("Transaksi di-void")}
+function voidOrder(id){
+ if(!isAdmin()){toast("Hanya Admin yang dapat void");return}
+ const o=S.orders.find(x=>String(x.id)===String(id));
+ if(!o){toast("Transaksi tidak ditemukan");return}
+ if(o.status!=="paid"){toast(o.status==="void"?"Transaksi sudah di-void":"Hanya transaksi selesai yang dapat di-void");return}
+ const targets=[];
+ for(const item of (o.items||[])){
+  const p=S.products.find(x=>String(x.id)===String(item.id));
+  const v=p?.variants?.find(x=>String(x.id)===String(item.variantId));
+  if(!p||!v){toast(`Stok ${item.variantName?item.name+" - "+item.variantName:item.name} tidak ditemukan. Void dibatalkan.`);return}
+  targets.push({p,v,qty:Math.max(1,Math.floor(Number(item.qty)||1))});
+ }
+ targets.forEach(({p,v,qty})=>{v.stock=Math.max(0,Math.floor(Number(v.stock)||0))+qty;syncProductStock(p)});
+ o.status="void";
+ o.voidedBy=current.username;
+ o.voidedAt=new Date().toISOString();
+ if(!save()){targets.forEach(({v,qty})=>{v.stock=Math.max(0,Math.floor(Number(v.stock)||0))-qty});o.status="paid";delete o.voidedBy;delete o.voidedAt;targets.forEach(({p})=>syncProductStock(p));toast("Void gagal disimpan");return}
+ renderOrders();renderKasir();renderDashboard?.();renderReports?.();
+ toast(`Void berhasil. ${targets.reduce((n,x)=>n+x.qty,0)} stok dikembalikan`);
+}
 function renderProducts(){
  document.getElementById("productsList").innerHTML=S.products.map(p=>{const stock=p.variants.reduce((n,v)=>n+v.stock,0);return `<div class="admin-product"><img src="${esc(p.img||placeholder())}" onerror="this.src='${placeholder()}'"><div class="grow"><b>${esc(p.name)}</b><div class="muted">${esc(p.cat)} · ${p.variants.length} varian · stok ${stock}</div><div class="muted" style="font-size:11px">${p.variants.map(v=>`${esc(v.name)} (${rupiah(v.price)}, stok ${v.stock})`).join(" · ")}</div></div><button class="secondary" data-edit="${esc(p.id)}">Edit</button><button class="secondary" data-delete="${esc(p.id)}">Hapus</button></div>`}).join("")||'<div class="panel muted">Belum ada produk.</div>'}
 function productModal(id=null){
