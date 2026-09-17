@@ -1,3 +1,7 @@
+POSTKU v2.3.6
+
+Update: foto produk distandarkan 400x400 (1:1) secara otomatis; struk menampilkan varian/rasa.
+
 
 ## v2.3.5 — Local stability & product variants
 - Struktur produk dimigrasikan otomatis tanpa menghapus data lokal lama.

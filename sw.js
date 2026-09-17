@@ -1,4 +1,4 @@
-const CACHE_NAME = 'postku-v2.3.4';
+const CACHE_NAME = 'postku-v2.3.6';
 const APP_SHELL = [
   './',
   './index.html',
