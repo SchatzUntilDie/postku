@@ -48,7 +48,9 @@ function normalizeState(saved){
   if(p&&item.variantId){const v=p.variants.find(x=>String(x.id)===String(item.variantId));if(v&&!item.variantName)item.variantName=v.name}
   return item;
  }):[]})):[];
+ state.orders.forEach(o=>{if(o.status==="preorder"||o.source==="preorder"){o.paymentStatus=o.paymentStatus||"unpaid";o.dpAmount=Math.max(0,Number(o.dpAmount)||0)} });
  state.cart=Array.isArray(saved?.cart)?saved.cart.map(i=>({...i,id:String(i.id),variantId:i.variantId?String(i.variantId):null,qty:Math.max(1,Math.floor(Number(i.qty)||1))})):[];
+ state.cartOrderId=saved?.cartOrderId?String(saved.cartOrderId):null;
  state.settings={...structuredClone(defaultState.settings),...(saved?.settings||{})};
  state.buyerName=String(saved?.buyerName||"");state.tableNo=String(saved?.tableNo||"");
  return state;
@@ -235,7 +237,7 @@ function renderCart(){
  el.innerHTML=S.cart.map(i=>`<div class="cart-row"><div class="cart-row-main"><b>${esc(i.name)}${i.variantName?` · ${esc(i.variantName)}`:""}</b><span class="muted">${rupiah(i.price)} / item</span><div class="qty"><button data-minus="${esc(i.key||`${i.id}::${i.variantId||""}`)}">−</button><span>${i.qty}</span><button data-plus="${esc(i.key||`${i.id}::${i.variantId||""}`)}">+</button></div></div><div class="cart-row-total"><b>${rupiah(i.price*i.qty)}</b></div></div>`).join("")||'<div class="cart-empty"><div>🛒</div><b>Keranjang masih kosong</b><span>Pilih produk di sebelah kiri untuk memulai pesanan.</span></div>';
  document.getElementById("cartTotal").textContent=rupiah(cartTotal());
 }
-function clearCart(){S.cart=[];S.buyerName="";S.tableNo="";save();renderCart()}
+function clearCart(){S.cart=[];S.buyerName="";S.tableNo="";S.cartOrderId=null;save();renderCart()}
 function cartTotal(){return S.cart.reduce((a,x)=>a+x.price*x.qty,0)}
 function findCartItem(key){return S.cart.find(x=>(x.key||`${x.id}::${x.variantId||""}`)===key)}
 function checkStockForCart(){
@@ -250,22 +252,47 @@ function openCheckout(){
 }
 function finishPayment(method,cash){
  const total=cartTotal();if(!checkStockForCart()){toast("Stok berubah atau tidak mencukupi. Periksa keranjang.");renderKasir();return}if(method==="Tunai"&&cash<total){toast("Uang diterima kurang");return}
- const now=new Date();const order={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("payBuyer").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total,method,cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username};
+ const now=new Date();
+ let order=S.cartOrderId?S.orders.find(o=>String(o.id)===String(S.cartOrderId)&&o.status==="pending"&&o.source==="preorder"):null;
+ if(order){
+  order.buyer=document.getElementById("payBuyer").value.trim()||order.buyer||"Umum";order.table=document.getElementById("tableNo").value.trim();order.items=structuredClone(S.cart);order.total=total;order.method=method;order.cash=cash;order.change=Math.max(0,cash-total);order.status="paid";order.cashier=current.username;order.completedAt=now.toISOString();order.paymentStatus="paid";
+ }else{
+  order={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("payBuyer").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total,method,cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username};
+  S.orders.unshift(order);
+ }
  for(const i of S.cart){const p=S.products.find(x=>String(x.id)===String(i.id));const v=p.variants.find(x=>String(x.id)===String(i.variantId));v.stock-=i.qty;syncProductStock(p)}
- S.orders.unshift(order);clearCart();closeModal();save();showCompletedOrder(order);toast("Transaksi berhasil");}
+ clearCart();closeModal();save();showCompletedOrder(order);toast("Transaksi berhasil");}
 function showCompletedOrder(order){
  openModal(`<div style="text-align:center;padding:8px 0 4px"><div style="font-size:44px;line-height:1">✓</div><h2 style="margin:10px 0 4px">Pesanan Selesai</h2><p class="muted" style="margin:0 0 14px">${esc(order.id)} · ${rupiah(order.total)}</p></div><div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:12px"><span>Pembeli</span><b>${esc(order.buyer)}</b></div><div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px"><span>Pembayaran</span><b>${esc(order.method)}</b></div>${order.method==="Tunai"?`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px"><span>Kembalian</span><b>${rupiah(order.change)}</b></div>`:""}</div><div style="display:grid;gap:8px"><button class="primary" id="completedPrint">🖨️ Selesai & Cetak Struk</button><button class="secondary" id="completedDone">✓ Pesanan Selesai</button></div>`);
  document.getElementById("completedPrint").onclick=()=>{const printed=printReceipt(order,"receipt");closeModal();go("kasir");if(printed)toast("Struk siap dicetak");};
  document.getElementById("completedDone").onclick=()=>{closeModal();go("kasir");};
 }
-function createPending(){if(!S.cart.length){toast("Keranjang masih kosong");return}const now=new Date();const o={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("buyerName").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"pending",cashier:current.username};S.orders.unshift(o);clearCart();save();go("orders");toast("Pesanan disimpan sebagai pending")}
+function createPending(){
+ if(!S.cart.length){toast("Keranjang masih kosong");return}
+ const now=new Date();
+ // Jika ini adalah Pre-Order yang sudah diproses ke Kasir, update Pending yang sama.
+ if(S.cartOrderId){
+  const existing=S.orders.find(o=>String(o.id)===String(S.cartOrderId)&&o.status==="pending"&&o.source==="preorder");
+  if(existing){
+   existing.buyer=document.getElementById("buyerName").value.trim()||existing.buyer||"Umum";
+   existing.table=document.getElementById("tableNo").value.trim();
+   existing.items=structuredClone(S.cart);
+   existing.total=cartTotal();
+   existing.updatedAt=now.toISOString();
+   save();clearCart();go("orders");toast("Pending Pre-Order diperbarui");return
+  }
+ }
+ const o={id:"ORD-"+now.getTime().toString().slice(-8)+"-"+Math.random().toString(36).slice(2,5).toUpperCase(),date:now.toISOString(),buyer:document.getElementById("buyerName").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"pending",cashier:current.username};
+ S.orders.unshift(o);clearCart();save();go("orders");toast("Pesanan disimpan sebagai pending")}
 function openPreorderModal(id){
- const existing=id?S.orders.find(o=>String(o.id)===String(id)&&o.status==="preorder"):null;
+ const existing=id?S.orders.find(o=>String(o.id)===String(id)&&(o.status==="preorder"||o.source==="preorder")):null;
  if(id&&!existing){toast("Pre-order tidak ditemukan");return}
  editingPreorderId=existing?.id||null;
- const d=existing?.pickupDate||todayKey(), t=existing?.pickupTime||"10:00";
+ const d=existing?.pickupDate||todayKey(), t=existing?.pickupTime||"10:00", pay=existing?.paymentStatus||"unpaid", dp=existing?.dpAmount||0;
  const list=existing?.items||S.cart;
- openModal(`<h2>${existing?"Edit Pre-Order":"Buat Pre-Order"}</h2><div class="field"><label>Nama pembeli</label><input id="poBuyer" value="${esc(existing?.buyer||document.getElementById("buyerName").value||"")}" placeholder="Contoh: Budi"></div><div class="field"><label>Tanggal pengambilan</label><input id="poDate" type="date" value="${esc(d)}"></div><div class="field"><label>Jam pengambilan</label><input id="poTime" type="time" value="${esc(t)}"></div><div class="field"><label>Catatan <span class="muted">(opsional)</span></label><textarea id="poNote" rows="3" placeholder="Contoh: ambil sebelum jam 10">${esc(existing?.note||"")}</textarea></div><div class="panel"><b>Daftar pesanan</b><div class="muted" style="margin-top:6px">${list.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` (${esc(i.variantName)})`:""}`).join(" · ")||"Keranjang masih kosong"}</div><div style="margin-top:8px"><b>Total ${rupiah(existing?.total??cartTotal())}</b></div></div><div style="display:grid;gap:8px"><button class="primary" id="savePreorder">${existing?"Simpan Perubahan":"Simpan Pre-Order"}</button><button class="secondary" id="cancelPreorderModal">Batal</button></div>`);
+ openModal(`<h2>${existing?"Edit Pre-Order":"Buat Pre-Order"}</h2><div class="field"><label>Nama pembeli</label><input id="poBuyer" value="${esc(existing?.buyer||document.getElementById("buyerName").value||"")}" placeholder="Contoh: Budi"></div><div class="field"><label>Tanggal pengambilan</label><input id="poDate" type="date" value="${esc(d)}"></div><div class="field"><label>Jam pengambilan</label><input id="poTime" type="time" value="${esc(t)}"></div><div class="field"><label>Status pembayaran</label><select id="poPayment"><option value="unpaid" ${pay==="unpaid"?"selected":""}>Belum Bayar</option><option value="dp" ${pay==="dp"?"selected":""}>DP</option><option value="paid" ${pay==="paid"?"selected":""}>Lunas</option></select></div><div class="field ${pay==="dp"?"":"hidden"}" id="poDpField"><label>Nominal DP</label><input id="poDpAmount" type="number" inputmode="numeric" min="0" value="${dp||""}" placeholder="Contoh: 50000"></div><div class="field"><label>Catatan <span class="muted">(opsional)</span></label><textarea id="poNote" rows="3" placeholder="Contoh: ambil sebelum jam 10">${esc(existing?.note||"")}</textarea></div><div class="panel"><b>Daftar pesanan</b><div class="muted" style="margin-top:6px">${list.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` (${esc(i.variantName)})`:""}`).join(" · ")||"Keranjang masih kosong"}</div><div style="margin-top:8px"><b>Total ${rupiah(existing?.total??cartTotal())}</b></div></div><div style="display:grid;gap:8px"><button class="primary" id="savePreorder">${existing?"Simpan Perubahan":"Simpan Pre-Order"}</button><button class="secondary" id="cancelPreorderModal">Batal</button></div>`);
+ const payEl=document.getElementById("poPayment"),dpField=document.getElementById("poDpField");
+ payEl.onchange=()=>dpField.classList.toggle("hidden",payEl.value!=="dp");
  document.getElementById("cancelPreorderModal").onclick=()=>{editingPreorderId=null;closeModal()};
  document.getElementById("savePreorder").onclick=savePreorder;
 }
@@ -275,22 +302,36 @@ function savePreorder(){
  if(!items?.length){toast("Keranjang masih kosong");return}
  const date=document.getElementById("poDate").value, time=document.getElementById("poTime").value||"10:00";
  if(!date){toast("Tanggal pengambilan wajib diisi");return}
- const buyer=document.getElementById("poBuyer").value.trim()||"Umum", note=document.getElementById("poNote").value.trim();
- if(existing){existing.buyer=buyer;existing.pickupDate=date;existing.pickupTime=time;existing.note=note;existing.total=existing.items.reduce((a,i)=>a+i.price*i.qty,0);save();editingPreorderId=null;closeModal();renderOrders();toast("Pre-order diperbarui");return}
- const now=new Date(), o={id:"PO-"+now.getTime().toString().slice(-8),date:now.toISOString(),pickupDate:date,pickupTime:time,buyer,table:document.getElementById("tableNo").value.trim(),note,items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"preorder",cashier:current.username};
- S.orders.unshift(o);clearCart();save();editingPreorderId=null;closeModal();go("orders");orderFilter="preorder";document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x.dataset.status==="preorder"));renderOrders();toast("Pre-order disimpan");
+ const buyer=document.getElementById("poBuyer").value.trim()||"Umum", note=document.getElementById("poNote").value.trim(), paymentStatus=document.getElementById("poPayment").value;
+ const total=existing?.total??cartTotal(); let dpAmount=Math.max(0,Number(document.getElementById("poDpAmount")?.value)||0);
+ if(paymentStatus==="dp"&&(dpAmount<=0||dpAmount>total)){toast("Nominal DP harus lebih dari 0 dan tidak melebihi total");return}
+ if(paymentStatus!=="dp")dpAmount=paymentStatus==="paid"?total:0;
+ if(existing){existing.buyer=buyer;existing.pickupDate=date;existing.pickupTime=time;existing.note=note;existing.total=existing.items.reduce((a,i)=>a+i.price*i.qty,0);existing.paymentStatus=paymentStatus;existing.dpAmount=paymentStatus==="dp"?Math.min(dpAmount,existing.total):paymentStatus==="paid"?existing.total:0;save();editingPreorderId=null;closeModal();renderOrders();toast("Pre-order diperbarui");return}
+ const now=new Date(), o={id:"PO-"+now.getTime().toString().slice(-8),date:now.toISOString(),pickupDate:date,pickupTime:time,buyer,table:document.getElementById("tableNo").value.trim(),note,items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"preorder",paymentStatus,dpAmount:paymentStatus==="dp"?dpAmount:paymentStatus==="paid"?cartTotal():0,cashier:current.username};
+ S.orders.unshift(o);clearCart();editingPreorderId=null;closeModal();go("orders");orderFilter="preorder";document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x.dataset.status==="preorder"));renderOrders();toast("Pre-order disimpan");
 }
-function processPreorder(id){const o=S.orders.find(x=>String(x.id)===String(id)&&x.status==="preorder");if(!o)return;S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));S.buyerName=o.buyer;S.tableNo=o.table||"";save();go("kasir");toast("Pre-order dimuat ke kasir")}
+function processPreorder(id){
+ const o=S.orders.find(x=>String(x.id)===String(id)&&x.status==="preorder");if(!o)return;
+ if(S.cartOrderId===o.id){go("kasir");return}
+ S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));
+ S.buyerName=o.buyer;S.tableNo=o.table||"";S.cartOrderId=o.id;
+ o.status="pending";o.source="preorder";o.processedAt=new Date().toISOString();o.processedBy=current.username;
+ // Simpan sebagai Pending yang sama; jangan membuat salinan baru.
+ if(!save()){o.status="preorder";delete o.source;delete o.processedAt;delete o.processedBy;S.cart=[];S.buyerName="";S.tableNo="";S.cartOrderId=null;renderCart();return}
+ go("kasir");toast("Pre-order dipindahkan ke kasir");
+}
 function markPreorderReady(id){const o=S.orders.find(x=>String(x.id)===String(id)&&x.status==="preorder");if(!o)return;o.preorderReady=true;o.readyAt=new Date().toISOString();o.readyBy=current.username;save();renderOrders();toast("Pre-order ditandai siap dibuat")}
 function renderOrders(){
  const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);
  document.getElementById("ordersList").innerHTML=arr.map(o=>{
   const label=o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":o.status==="preorder"?"PERLU DIBUAT":"DIBATALKAN";
-  const pickup=o.status==="preorder"?`<div class="muted" style="margin-top:6px">Ambil: <b>${new Date(o.pickupDate+"T00:00:00").toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})}</b> · <b>${esc(o.pickupTime||"10:00")}</b>${o.preorderReady?` · <span class="badge paid">SIAP</span>`:""}</div>`:"";
-  return `<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${label}</span></div>${pickup}<div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` <span class="muted">(${esc(i.variantName)})</span>`:""}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div>${o.note?`<div class="muted" style="margin-top:6px">Catatan: ${esc(o.note)}</div>`:""}${o.status==="cancelled"&&(o.cancelledBy||o.voidedBy)?`<div class="muted" style="font-size:11px;margin-top:5px">Dibatalkan oleh ${esc(o.cancelledBy||o.voidedBy)} · ${new Date(o.cancelledAt||o.voidedAt||o.date).toLocaleString("id-ID")}</div>`:""}<div class="order-actions" style="margin-top:12px">${o.status==="preorder"?`<button class="primary" data-process-po="${o.id}">Proses ke Kasir</button><button class="secondary" data-edit-po="${o.id}">Edit</button><button class="secondary" data-ready-po="${o.id}">${o.preorderReady?"Batalkan Tanda Siap":"Tandai Siap"}</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Batalkan Transaksi</button>`:""}</div></div>`
+  const pickup=(o.status==="preorder"||o.source==="preorder")?`<div class="muted" style="margin-top:6px">Ambil: <b>${o.pickupDate?new Date(o.pickupDate+"T00:00:00").toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"}):"-"}</b> · <b>${esc(o.pickupTime||"10:00")}</b>${o.preorderReady?` · <span class="badge paid">SIAP</span>`:""}</div>`:"";
+  const pay=o.paymentStatus?`<div class="muted" style="margin-top:6px">Pembayaran: <b>${o.paymentStatus==="paid"?"Lunas":o.paymentStatus==="dp"?`DP ${rupiah(o.dpAmount||0)}`:"Belum Bayar"}</b></div>`:"";
+  const dateLine=o.status==="preorder"?new Date(o.date).toLocaleString("id-ID"):o.source==="preorder"&&o.pickupDate?`Dibuat dari Pre-Order · Ambil ${new Date(o.pickupDate+"T00:00:00").toLocaleDateString("id-ID",{day:"2-digit",month:"short",year:"numeric"})} ${esc(o.pickupTime||"")}`:new Date(o.date).toLocaleString("id-ID");
+  return `<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${dateLine} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${label}</span></div>${pickup}${pay}<div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` <span class="muted">(${esc(i.variantName)})</span>`:""}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div>${o.note?`<div class="muted" style="margin-top:6px">Catatan: ${esc(o.note)}</div>`:""}${o.status==="cancelled"&&(o.cancelledBy||o.voidedBy)?`<div class="muted" style="font-size:11px;margin-top:5px">Dibatalkan oleh ${esc(o.cancelledBy||o.voidedBy)} · ${new Date(o.cancelledAt||o.voidedAt||o.date).toLocaleString("id-ID")}</div>`:""}<div class="order-actions" style="margin-top:12px">${o.status==="preorder"?`<button class="primary" data-process-po="${o.id}">Proses ke Kasir</button><button class="secondary" data-edit-po="${o.id}">Edit</button><button class="secondary" data-ready-po="${o.id}">${o.preorderReady?"Batalkan Tanda Siap":"Tandai Siap"}</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="pending"?`<button class="primary" data-resume="${o.id}">${o.source==="preorder"?"Lanjutkan & Bayar":"Lanjutkan & Bayar"}</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Batalkan Transaksi</button>`:""}</div></div>`
  }).join("")||'<div class="panel muted">Belum ada pesanan.</div>'
 }
-function resumeOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));S.buyerName=o.buyer;S.tableNo=o.table;S.orders=S.orders.filter(x=>x.id!==id);save();go("kasir");toast("Pesanan dikembalikan ke keranjang")}
+function resumeOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));S.buyerName=o.buyer;S.tableNo=o.table||"";S.cartOrderId=o.source==="preorder"?o.id:null;if(o.source!=="preorder")S.orders=S.orders.filter(x=>x.id!==id);save();go("kasir");toast("Pesanan dikembalikan ke keranjang")}
 function cancelOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;o.status="cancelled";save();renderOrders();toast("Pesanan dibatalkan")}
 function voidOrder(id){
  if(!isAdmin()){toast("Hanya Admin yang dapat membatalkan transaksi");return}
@@ -359,7 +400,7 @@ function saveSettings(){for(const id of ["shopName","shopAddress","shopPhone","b
 function downloadJSON(filename,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
 function backupData(){
  const stamp=new Date();
- const backup={format:"POSTKU-BACKUP",version:2,createdAt:stamp.toISOString(),data:{users:structuredClone(S.users),products:structuredClone(S.products),orders:structuredClone(S.orders),cart:structuredClone(S.cart),settings:structuredClone(S.settings)}};
+ const backup={format:"POSTKU-BACKUP",version:3,createdAt:stamp.toISOString(),data:{users:structuredClone(S.users),products:structuredClone(S.products),orders:structuredClone(S.orders),cart:structuredClone(S.cart),cartOrderId:S.cartOrderId||null,settings:structuredClone(S.settings)}};
  const date=stamp.toISOString().replace(/[:.]/g,"-");
  downloadJSON(`postku-backup-${date}.json`,backup);
  const info=document.getElementById("backupInfo");if(info)info.textContent=`Backup dibuat ${stamp.toLocaleString("id-ID")}. Simpan file ini di tempat aman.`;
