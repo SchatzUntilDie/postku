@@ -62,3 +62,5 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .report-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.report-actions input{border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;color:#111827;font-weight:700}.report-actions button{white-space:nowrap}@media(max-width:620px){.report-actions{width:100%;justify-content:stretch}.report-actions input,.report-actions button{flex:1;min-width:0}.report-actions button{font-size:11px;padding:9px 8px}}
 
 .backup-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}.backup-actions button{min-width:150px}.small{font-size:12px}
+
+.product-card:disabled{opacity:.62;cursor:not-allowed}.product-card:disabled:hover{transform:none;box-shadow:0 8px 24px rgba(15,23,42,.06)}

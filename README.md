@@ -1,3 +1,10 @@
+
+## v2.3.5 — Local stability & product variants
+- Struktur produk dimigrasikan otomatis tanpa menghapus data lokal lama.
+- Setiap produk mendukung beberapa varian/rasa dengan harga, stok, dan SKU masing-masing.
+- Stok dicek saat kasir menambah item dan saat pembayaran.
+- Foto produk baru dikompres agar penyimpanan lokal lebih ringan.
+- Backup/restore dan simpan login tetap dipertahankan.
 # POSTKU v2.3
 
 PWA kasir sederhana untuk HP.
