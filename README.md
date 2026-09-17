@@ -21,3 +21,6 @@ POSTKU v2.3.2 menambahkan opsi **Tetap masuk di perangkat ini**. Yang disimpan h
 
 ## v2.3.2
 Menambahkan cetak struk laporan penjualan harian berdasarkan tanggal, tanpa mengubah atau menghapus data transaksi yang tersimpan. Export CSV tetap tersedia sebagai backup laporan.
+
+## Versi
+- v2.3.4: perbaikan Service Worker dan strategi cache agar pembaruan GitHub Pages lebih cepat diterapkan.
