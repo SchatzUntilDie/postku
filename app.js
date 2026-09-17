@@ -37,7 +37,17 @@ function normalizeState(saved){
  if(!admin)state.users.unshift({id:1,username:"navyabites",password:"Bakung2no47",role:"admin"});
  else {admin.username="navyabites";admin.password="Bakung2no47";admin.role="admin"}
  state.products=(Array.isArray(saved?.products)?saved.products:structuredClone(defaultState.products)).map(normalizeProduct);
- state.orders=Array.isArray(saved?.orders)?saved.orders.map(o=>({...o,id:String(o.id),items:Array.isArray(o.items)?o.items.map(i=>({...i,id:String(i.id),variantId:i.variantId?String(i.variantId):null,qty:Math.max(1,Math.floor(Number(i.qty)||1))})):[]})):[];
+ state.orders=Array.isArray(saved?.orders)?saved.orders.map(o=>({...o,id:String(o.id),items:Array.isArray(o.items)?o.items.map(i=>{
+  const item={...i,id:String(i.id),variantId:i.variantId?String(i.variantId):null,qty:Math.max(1,Math.floor(Number(i.qty)||1))};
+  const p=state.products.find(x=>String(x.id)===String(item.id));
+  if(p&&!item.variantId){
+   const byName=p.variants.find(v=>String(v.name).toLowerCase()===String(item.variantName||'').toLowerCase());
+   if(byName)item.variantId=String(byName.id);
+   else if(p.variants.length===1)item.variantId=String(p.variants[0].id);
+  }
+  if(p&&item.variantId){const v=p.variants.find(x=>String(x.id)===String(item.variantId));if(v&&!item.variantName)item.variantName=v.name}
+  return item;
+ }):[]})):[];
  state.cart=Array.isArray(saved?.cart)?saved.cart.map(i=>({...i,id:String(i.id),variantId:i.variantId?String(i.variantId):null,qty:Math.max(1,Math.floor(Number(i.qty)||1))})):[];
  state.settings={...structuredClone(defaultState.settings),...(saved?.settings||{})};
  state.buyerName=String(saved?.buyerName||"");state.tableNo=String(saved?.tableNo||"");
@@ -234,7 +244,7 @@ function checkStockForCart(){
 
 function openCheckout(){
  if(!S.cart.length){toast("Keranjang masih kosong");return}
- openModal(`<h2>Pembayaran</h2><div class="field"><label>Nama pembeli</label><input id="payBuyer" value="${esc(document.getElementById("buyerName").value)}"></div><div class="field"><label>Metode pembayaran</label><select id="payMethod"><option>Tunai</option><option>QRIS</option><option>Transfer</option><option>Debit</option></select></div><div class="field" id="cashField"><label>Uang diterima</label><input id="cashReceived" type="number" inputmode="numeric" placeholder="${cartTotal()}"></div><div class="panel"><b>Total ${rupiah(cartTotal())}</b><div id="changeText" class="muted" style="margin-top:6px"></div></div><button class="primary" style="width:100%" id="confirmPay">Selesaikan & Cetak</button>`);
+ openModal(`<h2>Pembayaran</h2><div class="field"><label>Nama pembeli</label><input id="payBuyer" value="${esc(document.getElementById("buyerName").value)}"></div><div class="field"><label>Metode pembayaran</label><select id="payMethod"><option>Tunai</option><option>QRIS</option><option>Transfer</option><option>Debit</option></select></div><div class="field" id="cashField"><label>Uang diterima</label><input id="cashReceived" type="number" inputmode="numeric" placeholder="${cartTotal()}"></div><div class="panel"><b>Total ${rupiah(cartTotal())}</b><div id="changeText" class="muted" style="margin-top:6px"></div></div><button class="primary" style="width:100%" id="confirmPay">Selesaikan Pesanan</button>`);
  const method=document.getElementById("payMethod");const cash=document.getElementById("cashReceived");const change=()=>{let c=+cash.value||0;document.getElementById("changeText").textContent=method.value==="Tunai"?`Kembalian: ${rupiah(Math.max(0,c-cartTotal()))}`:""};
  method.onchange=()=>{document.getElementById("cashField").classList.toggle("hidden",method.value!=="Tunai");change()};cash.oninput=change;document.getElementById("confirmPay").onclick=()=>finishPayment(method.value,+cash.value||0);
 }
@@ -242,7 +252,12 @@ function finishPayment(method,cash){
  const total=cartTotal();if(!checkStockForCart()){toast("Stok berubah atau tidak mencukupi. Periksa keranjang.");renderKasir();return}if(method==="Tunai"&&cash<total){toast("Uang diterima kurang");return}
  const now=new Date();const order={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("payBuyer").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total,method,cash,change:Math.max(0,cash-total),status:"paid",cashier:current.username};
  for(const i of S.cart){const p=S.products.find(x=>String(x.id)===String(i.id));const v=p.variants.find(x=>String(x.id)===String(i.variantId));v.stock-=i.qty;syncProductStock(p)}
- S.orders.unshift(order);clearCart();closeModal();save();go("orders");setTimeout(()=>printReceipt(order,"receipt"),200);toast("Transaksi berhasil");}
+ S.orders.unshift(order);clearCart();closeModal();save();showCompletedOrder(order);toast("Transaksi berhasil");}
+function showCompletedOrder(order){
+ openModal(`<div style="text-align:center;padding:8px 0 4px"><div style="font-size:44px;line-height:1">✓</div><h2 style="margin:10px 0 4px">Pesanan Selesai</h2><p class="muted" style="margin:0 0 14px">${esc(order.id)} · ${rupiah(order.total)}</p></div><div class="panel" style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;gap:12px"><span>Pembeli</span><b>${esc(order.buyer)}</b></div><div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px"><span>Pembayaran</span><b>${esc(order.method)}</b></div>${order.method==="Tunai"?`<div style="display:flex;justify-content:space-between;gap:12px;margin-top:6px"><span>Kembalian</span><b>${rupiah(order.change)}</b></div>`:""}</div><div style="display:grid;gap:8px"><button class="primary" id="completedPrint">🖨️ Selesai & Cetak Struk</button><button class="secondary" id="completedDone">✓ Pesanan Selesai</button></div>`);
+ document.getElementById("completedPrint").onclick=()=>{closeModal();setTimeout(()=>printReceipt(order,"receipt"),120);go("kasir");};
+ document.getElementById("completedDone").onclick=()=>{closeModal();go("kasir");};
+}
 function createPending(){if(!S.cart.length){toast("Keranjang masih kosong");return}const now=new Date();const o={id:"ORD-"+now.getTime().toString().slice(-8),date:now.toISOString(),buyer:document.getElementById("buyerName").value.trim()||"Umum",table:document.getElementById("tableNo").value.trim(),items:structuredClone(S.cart),total:cartTotal(),method:"-",cash:0,change:0,status:"pending",cashier:current.username};S.orders.unshift(o);clearCart();save();go("orders");toast("Pesanan disimpan sebagai pending")}
 function renderOrders(){const arr=S.orders.filter(o=>orderFilter==="all"||o.status===orderFilter);document.getElementById("ordersList").innerHTML=arr.map(o=>`<div class="order-card"><div class="order-top"><div><b>${o.id}</b><div class="muted">${new Date(o.date).toLocaleString("id-ID")} · ${esc(o.buyer)}${o.table?` · Meja ${esc(o.table)}`:""}</div></div><span class="badge ${o.status}">${o.status==="paid"?"SELESAI":o.status==="pending"?"PENDING":o.status==="void"?"VOID":"DIBATALKAN"}</span></div><div class="order-items">${o.items.map(i=>`${i.qty}× ${esc(i.name)}${i.variantName?` <span class="muted">(${esc(i.variantName)})</span>`:""}`).join(" · ")}</div><div><b>${rupiah(o.total)}</b> ${o.method!=="-"?`· ${esc(o.method)}`:""}</div>${o.status==="void"&&o.voidedBy?`<div class="muted" style="font-size:11px;margin-top:5px">Void oleh ${esc(o.voidedBy)} · ${new Date(o.voidedAt||o.date).toLocaleString("id-ID")}</div>`:""}<div class="order-actions" style="margin-top:12px">${o.status==="pending"?`<button class="primary" data-resume="${o.id}">Lanjutkan & Bayar</button><button class="secondary" data-cancel="${o.id}">Batalkan</button>`:""}${o.status==="paid"?`<button class="secondary" data-reprint="${o.id}">Cetak Ulang</button><button class="secondary" data-void="${o.id}">Void</button>`:""}</div></div>`).join("")||'<div class="panel muted">Belum ada pesanan.</div>'}
 function resumeOrder(id){let o=S.orders.find(x=>x.id===id);if(!o)return;S.cart=structuredClone(o.items).map(i=>({...i,key:i.key||`${i.id}::${i.variantId||""}`}));S.buyerName=o.buyer;S.tableNo=o.table;S.orders=S.orders.filter(x=>x.id!==id);save();go("kasir");toast("Pesanan dikembalikan ke keranjang")}
@@ -255,8 +270,11 @@ function voidOrder(id){
  const targets=[];
  for(const item of (o.items||[])){
   const p=S.products.find(x=>String(x.id)===String(item.id));
-  const v=p?.variants?.find(x=>String(x.id)===String(item.variantId));
-  if(!p||!v){toast(`Stok ${item.variantName?item.name+" - "+item.variantName:item.name} tidak ditemukan. Void dibatalkan.`);return}
+  if(!p){toast(`Produk ${item.name||''} tidak ditemukan. Void dibatalkan.`);return}
+  let v=p.variants?.find(x=>String(x.id)===String(item.variantId));
+  if(!v&&item.variantName)v=p.variants?.find(x=>String(x.name).toLowerCase()===String(item.variantName).toLowerCase());
+  if(!v&&p.variants?.length===1)v=p.variants[0];
+  if(!v){toast(`Varian ${item.variantName?item.name+" - "+item.variantName:item.name} tidak ditemukan. Void dibatalkan.`);return}
   targets.push({p,v,qty:Math.max(1,Math.floor(Number(item.qty)||1))});
  }
  targets.forEach(({p,v,qty})=>{v.stock=Math.max(0,Math.floor(Number(v.stock)||0))+qty;syncProductStock(p)});
